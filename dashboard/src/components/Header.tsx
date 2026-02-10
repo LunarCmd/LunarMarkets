@@ -4,13 +4,15 @@ import { useState, useEffect, useRef } from 'react';
 import { MarketConfig } from '@/types';
 import { getConfig } from '@/lib/config';
 import { cn, formatAddress } from '@/lib/utils';
-import { 
-  ChevronDown, 
-  Server, 
-  Activity, 
+import {
+  ChevronDown,
+  Server,
+  Activity,
   Settings,
   Database,
-  Layers
+  Layers,
+  Github,
+  Twitter
 } from 'lucide-react';
 import { useConnectionStatus } from '@/hooks/useMarketData';
 
@@ -146,6 +148,28 @@ export function Header({ selectedMarket, onMarketChange, onSettingsClick }: Head
                   </span>
                 )}
               </div>
+            </div>
+
+            {/* Social Links */}
+            <div className="flex items-center gap-2">
+              <a
+                href="https://github.com/LunarCmd/LunarMarkets"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-400 hover:text-white transition-colors"
+                title="GitHub Repository"
+              >
+                <Github className="w-5 h-5" />
+              </a>
+              <a
+                href="https://x.com/LunarMarkets"
+                target="_blank"
+                rel="noopener noreferrer"
+                className="p-2 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-400 hover:text-white transition-colors"
+                title="Follow us on X/Twitter"
+              >
+                <Twitter className="w-5 h-5" />
+              </a>
             </div>
 
             {/* Settings Button */}

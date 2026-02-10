@@ -1,6 +1,179 @@
-# Percolator: Risk Engine for Perpetual DEXs
+# LunarMarkets Trading Dashboard
 
-⚠️ **EDUCATIONAL RESEARCH PROJECT — NOT PRODUCTION READY** ⚠️  
+[![Twitter Follow](https://img.shields.io/twitter/follow/LunarMarkets?style=social)](https://x.com/LunarMarkets)
+[![GitHub](https://img.shields.io/github/stars/LunarCmd/LunarMarkets?style=social)](https://github.com/LunarCmd/LunarMarkets)
+
+**Real-time trading dashboard for Percolator perpetual markets on Solana.**
+
+This is a fork of the [Percolator risk engine](https://github.com/percolator-cli/percolator) with an added production-ready web trading interface.
+
+## 🚀 Quick Start
+
+```bash
+cd dashboard
+npm install
+cp .env.example .env.local
+# Configure your market settings in .env.local
+npm run dev
+```
+
+Open [http://localhost:3000](http://localhost:3000) to start trading.
+
+## ✨ Dashboard Features
+
+### Trading & Market Data
+- 📊 **Real-time market data** - Live order book, positions, and account states
+- 📈 **Multi-market support** - Trade multiple perpetual markets from one interface
+- 💹 **DexScreener integration** - Live price charts and market analytics
+- 🎯 **Personal position tracking** - Real-time PnL calculations and position management
+- 💰 **Deposit/Withdraw/Trade** - Full trading functionality with one-click execution
+
+### Security & Wallet Management
+- 🔐 **PIN-encrypted wallet storage** - AES-256-GCM encryption with PBKDF2 (100k iterations)
+- 🛡️ **Failed attempt protection** - Auto-wipe after 10 failed PIN attempts
+- 🧮 **Math challenge** - Anti-brute-force protection on 9th attempt
+- 🔒 **Client-side only** - Keys never leave your browser, no server storage
+- 💾 **Persistent saved wallets** - Encrypted keypairs survive browser/server restarts
+
+### User Experience
+- 🌙 **Dark mode optimized** - Professional trading interface with black/grey theme
+- ⚡ **Custom RPC support** - Configure your own high-performance RPC endpoints
+- 🎨 **Logo/branding support** - Customize with your own branding
+- 📱 **Responsive design** - Works on desktop and mobile
+- ⚠️ **Progressive warnings** - Clear alerts at 8 and 9 failed PIN attempts
+- 🔄 **Auto-refresh with error handling** - Pauses on RPC errors, resumes on success
+
+## 📸 Screenshots
+
+[Add screenshots here when ready]
+
+## 🔧 Configuration
+
+### Required Environment Variables
+
+Create a `.env.local` file in the `dashboard/` directory:
+
+```env
+# Market Configuration (Required - must be valid Solana public keys)
+NEXT_PUBLIC_SLAB_ADDRESS=your_slab_address_here
+NEXT_PUBLIC_TOKEN_ADDRESS=your_token_address_here
+NEXT_PUBLIC_PROGRAM_ID=your_program_id_here
+NEXT_PUBLIC_MATCHER_PROGRAM_ID=your_matcher_program_id_here
+
+# RPC Configuration (Recommended)
+NEXT_PUBLIC_RPC_URL=https://your-rpc-endpoint.com
+
+# Market Display
+NEXT_PUBLIC_MARKET_NAME=LIQUID/SOL PERP
+NEXT_PUBLIC_COLLATERAL_SYMBOL=SOL
+NEXT_PUBLIC_UNDERLYING_SYMBOL=LIQUID
+NEXT_PUBLIC_COLLATERAL_DECIMALS=9
+NEXT_PUBLIC_UNDERLYING_DECIMALS=6
+
+# Branding (Optional)
+NEXT_PUBLIC_APP_NAME=LunarMarkets
+NEXT_PUBLIC_APP_LOGO=/logo.png
+```
+
+### RPC Endpoints
+
+⚠️ **Important**: The default public RPC is rate-limited and unreliable. Get your own RPC from:
+- [Helius](https://helius.xyz) - Recommended for high performance
+- [QuickNode](https://quicknode.com)
+- [Alchemy](https://alchemy.com)
+- Or run your own Solana validator
+
+## 🏗️ Project Structure
+
+```
+LunarMarkets/
+├── dashboard/              # Trading dashboard (Next.js app)
+│   ├── src/
+│   │   ├── app/           # Next.js pages and layouts
+│   │   ├── components/    # React components
+│   │   │   ├── Header.tsx
+│   │   │   ├── TradingPanel.tsx
+│   │   │   ├── PinModal.tsx
+│   │   │   ├── AccountsTable.tsx
+│   │   │   └── ...
+│   │   ├── contexts/      # React contexts (WalletContext)
+│   │   ├── hooks/         # Custom hooks (useMarketData, useTokenInfo)
+│   │   ├── lib/           # Core libraries
+│   │   │   ├── solana.ts      # Blockchain interaction
+│   │   │   ├── crypto.ts      # Client-side encryption
+│   │   │   ├── transactions.ts # Transaction building
+│   │   │   └── config.ts      # Configuration management
+│   │   └── types/         # TypeScript type definitions
+│   ├── public/            # Static assets
+│   └── package.json
+│
+└── [percolator engine code] # Original Percolator risk engine
+
+```
+
+## 🛡️ Security Notes
+
+### Wallet Key Storage (Experimental)
+
+⚠️ **For testing/development only** - Use with caution
+
+- All encryption happens **client-side** using Web Crypto API
+- Keys stored in browser `localStorage` (never on server)
+- AES-256-GCM encryption with PBKDF2 key derivation (100,000 iterations)
+- PIN stored in `sessionStorage` (cleared on browser close)
+- After 10 failed PIN attempts, all keys are permanently deleted
+- Math challenge required on 9th attempt to prevent brute force
+
+**Verify for yourself:**
+1. Open DevTools → Network tab (no key-related requests)
+2. Open DevTools → Application → Local Storage (see encrypted data)
+3. Review source code - no API endpoints for key storage
+
+### Best Practices
+
+✅ Always verify the URL before entering sensitive data
+✅ Use strong, unique PINs (not 1234, 0000, etc.)
+✅ Use a custom RPC endpoint for production trading
+✅ Keep your browser and OS updated
+✅ Consider using a dedicated browser profile for trading
+
+## 🔗 Links
+
+- **Twitter/X:** [@LunarMarkets](https://x.com/LunarMarkets)
+- **GitHub:** [LunarCmd/LunarMarkets](https://github.com/LunarCmd/LunarMarkets)
+- **Original Percolator:** [percolator-cli/percolator](https://github.com/percolator-cli/percolator)
+
+## 💻 Tech Stack
+
+- **Next.js 16.1.6** - React framework with Turbopack
+- **React 19** - Latest React with new features
+- **TypeScript** - Full type safety
+- **Tailwind CSS** - Utility-first styling
+- **@solana/web3.js** - Solana blockchain interaction
+- **Web Crypto API** - Browser-native encryption
+- **Lucide Icons** - Beautiful icon library
+
+## 📦 Building for Production
+
+```bash
+cd dashboard
+npm run build
+npm run start
+```
+
+## 🤝 Contributing
+
+Contributions welcome! Please open an issue or PR.
+
+## 📄 License
+
+[Add your license here]
+
+---
+
+# Original Percolator Documentation
+
+⚠️ **EDUCATIONAL RESEARCH PROJECT — NOT PRODUCTION READY** ⚠️
 Do **NOT** use with real funds. Not audited. Experimental design.
 
 Percolator is a **formally verified accounting + risk engine** for perpetual futures DEXs on Solana.

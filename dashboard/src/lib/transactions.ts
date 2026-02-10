@@ -1,11 +1,9 @@
 import { Connection, PublicKey, Transaction, TransactionInstruction, SYSVAR_CLOCK_PUBKEY, SystemProgram } from '@solana/web3.js';
 import {
   TOKEN_PROGRAM_ID,
-  getAssociatedTokenAddress,
-  createAssociatedTokenAccountInstruction,
-  createSyncNativeInstruction,
-  createCloseAccountInstruction,
-  NATIVE_MINT
+  ASSOCIATED_TOKEN_PROGRAM_ID,
+  NATIVE_MINT,
+  Token
 } from '@solana/spl-token';
 import BN from 'bn.js';
 
@@ -85,7 +83,12 @@ export async function buildInitUserTransaction(params: {
   const transaction = new Transaction();
 
   // Get user's ATA
-  const userAta = await getAssociatedTokenAddress(collateralMint, userPublicKey);
+  const userAta = await Token.getAssociatedTokenAddress(
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    TOKEN_PROGRAM_ID,
+    collateralMint,
+    userPublicKey
+  );
 
   // Check if this is WSOL (native SOL)
   const isNativeSOL = collateralMint.equals(NATIVE_MINT);
@@ -97,11 +100,13 @@ export async function buildInitUserTransaction(params: {
     if (!ataInfo) {
       // Create ATA if it doesn't exist
       transaction.add(
-        createAssociatedTokenAccountInstruction(
-          userPublicKey,
+        Token.createAssociatedTokenAccountInstruction(
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+          TOKEN_PROGRAM_ID,
+          collateralMint,
           userAta,
           userPublicKey,
-          collateralMint
+          userPublicKey
         )
       );
     }
@@ -117,7 +122,7 @@ export async function buildInitUserTransaction(params: {
 
     // Sync native to wrap SOL
     transaction.add(
-      createSyncNativeInstruction(userAta)
+      Token.createSyncNativeInstruction(TOKEN_PROGRAM_ID, userAta)
     );
   }
 
@@ -163,7 +168,12 @@ export async function buildDepositTransaction(params: {
   const transaction = new Transaction();
 
   // Get user's ATA
-  const userAta = await getAssociatedTokenAddress(collateralMint, userPublicKey);
+  const userAta = await Token.getAssociatedTokenAddress(
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    TOKEN_PROGRAM_ID,
+    collateralMint,
+    userPublicKey
+  );
 
   // Check if this is WSOL (native SOL)
   const isNativeSOL = collateralMint.equals(NATIVE_MINT);
@@ -175,11 +185,13 @@ export async function buildDepositTransaction(params: {
     if (!ataInfo) {
       // Create ATA if it doesn't exist
       transaction.add(
-        createAssociatedTokenAccountInstruction(
-          userPublicKey,
+        Token.createAssociatedTokenAccountInstruction(
+          ASSOCIATED_TOKEN_PROGRAM_ID,
+          TOKEN_PROGRAM_ID,
+          collateralMint,
           userAta,
           userPublicKey,
-          collateralMint
+          userPublicKey
         )
       );
     }
@@ -195,7 +207,7 @@ export async function buildDepositTransaction(params: {
 
     // Sync native to wrap SOL
     transaction.add(
-      createSyncNativeInstruction(userAta)
+      Token.createSyncNativeInstruction(TOKEN_PROGRAM_ID, userAta)
     );
   }
 
@@ -244,7 +256,12 @@ export async function buildWithdrawTransaction(params: {
   const transaction = new Transaction();
 
   // Get user's ATA
-  const userAta = await getAssociatedTokenAddress(collateralMint, userPublicKey);
+  const userAta = await Token.getAssociatedTokenAddress(
+    ASSOCIATED_TOKEN_PROGRAM_ID,
+    TOKEN_PROGRAM_ID,
+    collateralMint,
+    userPublicKey
+  );
 
   // Get vault PDA
   const vaultPda = getVaultPda(slabAddress, programId);
@@ -279,10 +296,12 @@ export async function buildWithdrawTransaction(params: {
   if (isNativeSOL) {
     // Close the WSOL account to unwrap back to native SOL
     transaction.add(
-      createCloseAccountInstruction(
+      Token.createCloseAccountInstruction(
+        TOKEN_PROGRAM_ID,
         userAta,
         userPublicKey, // Destination for remaining SOL
-        userPublicKey  // Owner/authority
+        userPublicKey, // Owner/authority
+        []             // Multisig signers (empty for single signer)
       )
     );
   }

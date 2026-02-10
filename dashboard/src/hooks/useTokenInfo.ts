@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react';
 import { Connection, PublicKey } from '@solana/web3.js';
-import { getConfig } from '@/lib/config';
+import { getRpcUrl } from '@/lib/config';
 import { TokenInfo } from '@/types';
 import BN from 'bn.js';
 
@@ -41,8 +41,6 @@ export function useTokenInfo(tokenAddress: string | undefined) {
   const [loading, setLoading] = useState(false);
   const [error, setError] = useState<Error | null>(null);
 
-  const { rpcUrl } = getConfig();
-
   useEffect(() => {
     if (!tokenAddress) {
       setTokenInfo(null);
@@ -57,7 +55,7 @@ export function useTokenInfo(tokenAddress: string | undefined) {
       const known = KNOWN_TOKENS[tokenAddress];
 
       try {
-        const connection = new Connection(rpcUrl);
+        const connection = new Connection(getRpcUrl());
         const address = new PublicKey(tokenAddress);
         
         // Get the token mint account info directly
@@ -109,7 +107,7 @@ export function useTokenInfo(tokenAddress: string | undefined) {
     };
 
     fetchTokenInfo();
-  }, [tokenAddress, rpcUrl]);
+  }, [tokenAddress]);
 
   return { tokenInfo, loading, error };
 }

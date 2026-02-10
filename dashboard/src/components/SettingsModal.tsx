@@ -40,7 +40,8 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
   const [markets, setMarkets] = useLocalStorage<MarketConfig[]>('dashboard-markets', getAllMarkets());
   const [isEditing, setIsEditing] = useState(false);
   const [editingMarket, setEditingMarket] = useState<FormData>(emptyForm);
-  const { rpcUrl, refreshInterval } = getConfig();
+  const [customRpcUrl, setCustomRpcUrl] = useLocalStorage<string>('custom-rpc-url', '');
+  const { refreshInterval } = getConfig();
 
   useEffect(() => {
     if (isOpen) {
@@ -155,17 +156,29 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                 </div>
                 <div className="space-y-3">
                   <div>
-                    <label className="block text-sm text-gray-400 mb-1">RPC URL</label>
+                    <label className="block text-sm text-gray-400 mb-1">Custom RPC URL (Optional)</label>
                     <input
                       type="text"
-                      value={rpcUrl}
-                      readOnly
-                      className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-gray-300 text-sm"
+                      value={customRpcUrl}
+                      onChange={(e) => setCustomRpcUrl(e.target.value)}
+                      placeholder="https://api.mainnet-beta.solana.com"
+                      className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white text-sm font-mono focus:border-primary-500 focus:ring-1 focus:ring-primary-500 outline-none"
                     />
                     <p className="mt-1 text-xs text-gray-500">
-                      Edit in <code className="bg-dark-700 px-1 rounded">.env.local</code>
+                      {customRpcUrl ?
+                        'Using your custom RPC endpoint' :
+                        'Leave empty to use default RPC. Recommended providers: Helius, QuickNode, Alchemy'
+                      }
                     </p>
                   </div>
+                  {customRpcUrl && (
+                    <button
+                      onClick={() => setCustomRpcUrl('')}
+                      className="text-xs text-red-400 hover:text-red-300 transition-colors"
+                    >
+                      Clear custom RPC
+                    </button>
+                  )}
                 </div>
               </div>
 

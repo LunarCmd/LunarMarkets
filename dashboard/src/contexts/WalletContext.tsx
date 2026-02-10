@@ -2,7 +2,7 @@
 
 import React, { createContext, useContext, useState, useCallback, useEffect, ReactNode } from 'react';
 import { Connection, PublicKey, Transaction, Keypair, VersionedTransaction } from '@solana/web3.js';
-import { getConfig } from '@/lib/config';
+import { getRpcUrl } from '@/lib/config';
 
 type WalletType = 'phantom' | 'solflare' | 'keypair' | null;
 
@@ -64,18 +64,34 @@ declare global {
 }
 
 export function WalletProvider({ children }: { children: ReactNode }) {
-  const { rpcUrl } = getConfig();
-  const [connection] = useState(() => new Connection(rpcUrl, 'confirmed'));
-  
+  const [connection, setConnection] = useState(() => new Connection(getRpcUrl(), 'confirmed'));
+
   const [walletType, setWalletType] = useState<WalletType>(null);
   const [publicKey, setPublicKey] = useState<PublicKey | null>(null);
   const [isConnected, setIsConnected] = useState(false);
   const [isConnecting, setIsConnecting] = useState(false);
   const [autoSign, setAutoSign] = useState(true); // Default to auto-sign for convenience
   const [error, setError] = useState<string | null>(null);
-  
+
   // Keypair storage (for keypair wallet)
   const [keypair, setKeypair] = useState<Keypair | null>(null);
+
+  // Update connection when RPC URL changes in localStorage
+  useEffect(() => {
+    const handleStorageChange = () => {
+      const newRpcUrl = getRpcUrl();
+      setConnection(new Connection(newRpcUrl, 'confirmed'));
+    };
+
+    window.addEventListener('storage', handleStorageChange);
+    // Also check periodically for same-tab changes
+    const interval = setInterval(handleStorageChange, 1000);
+
+    return () => {
+      window.removeEventListener('storage', handleStorageChange);
+      clearInterval(interval);
+    };
+  }, []);
 
   const clearError = useCallback(() => setError(null), []);
 

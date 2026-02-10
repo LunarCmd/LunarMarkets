@@ -91,3 +91,23 @@ export function getMarketById(id: string): MarketConfig | undefined {
 export function getAllMarkets(): MarketConfig[] {
   return getConfig().markets;
 }
+
+export function getRpcUrl(): string {
+  // Check for custom RPC in localStorage (client-side only)
+  if (typeof window !== 'undefined') {
+    try {
+      const customRpc = localStorage.getItem('custom-rpc-url');
+      if (customRpc) {
+        const parsed = JSON.parse(customRpc);
+        if (parsed && parsed.trim()) {
+          return parsed;
+        }
+      }
+    } catch {
+      // Fall through to default
+    }
+  }
+
+  // Fall back to env var
+  return process.env.NEXT_PUBLIC_RPC_URL || 'https://api.mainnet-beta.solana.com';
+}

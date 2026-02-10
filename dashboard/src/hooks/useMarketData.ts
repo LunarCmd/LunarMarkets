@@ -3,7 +3,7 @@
 import { useState, useEffect, useCallback, useRef } from 'react';
 import { MarketConfig, SlabData, MarketStats, UseMarketDataReturn, LoadingState } from '@/types';
 import { SolanaConnection, fetchSlabData } from '@/lib/solana';
-import { getConfig } from '@/lib/config';
+import { getConfig, getRpcUrl } from '@/lib/config';
 import BN from 'bn.js';
 
 export function useMarketData(market: MarketConfig | null): UseMarketDataReturn {
@@ -16,14 +16,14 @@ export function useMarketData(market: MarketConfig | null): UseMarketDataReturn 
   const connectionRef = useRef<SolanaConnection | null>(null);
   const intervalRef = useRef<NodeJS.Timeout | null>(null);
 
-  const { rpcUrl, refreshInterval } = getConfig();
+  const { refreshInterval } = getConfig();
 
   // Initialize connection
   useEffect(() => {
     if (!connectionRef.current) {
-      connectionRef.current = new SolanaConnection(rpcUrl);
+      connectionRef.current = new SolanaConnection(getRpcUrl());
     }
-  }, [rpcUrl]);
+  }, []);
 
   const fetchData = useCallback(async () => {
     if (!market || !connectionRef.current) return;
@@ -104,16 +104,15 @@ export function useMarketData(market: MarketConfig | null): UseMarketDataReturn 
 export function useConnectionStatus() {
   const [isConnected, setIsConnected] = useState(false);
   const [latency, setLatency] = useState<number | null>(null);
-  const { rpcUrl } = getConfig();
 
   useEffect(() => {
     const checkConnection = async () => {
       try {
         const start = Date.now();
-        const connection = new SolanaConnection(rpcUrl);
+        const connection = new SolanaConnection(getRpcUrl());
         const slot = await connection.getSlot();
         const end = Date.now();
-        
+
         setIsConnected(!!slot);
         setLatency(end - start);
       } catch {
@@ -126,7 +125,7 @@ export function useConnectionStatus() {
     const interval = setInterval(checkConnection, 10000);
 
     return () => clearInterval(interval);
-  }, [rpcUrl]);
+  }, []);
 
   return { isConnected, latency };
 }

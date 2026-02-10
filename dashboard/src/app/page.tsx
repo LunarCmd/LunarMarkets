@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useEffect } from 'react';
 import { MarketConfig } from '@/types';
-import { getConfig } from '@/lib/config';
+import { getConfig, getRpcUrl } from '@/lib/config';
 import { useMarketData } from '@/hooks/useMarketData';
 import { useTokenInfo } from '@/hooks/useTokenInfo';
 import { Header } from '@/components/Header';
@@ -10,7 +10,6 @@ import { AccountsTable } from '@/components/AccountsTable';
 import { RefreshIndicator } from '@/components/RefreshIndicator';
 import { SettingsModal } from '@/components/SettingsModal';
 import { DexScreenerChart } from '@/components/DexScreenerChart';
-import { TradingViewChart } from '@/components/TradingViewChart';
 import { TradingPanel } from '@/components/TradingPanel';
 import { PersonalPositions } from '@/components/PersonalPositions';
 import { useWallet } from '@/contexts/WalletContext';
@@ -28,7 +27,6 @@ export default function Dashboard() {
   const [markets, setMarkets] = useLocalStorage<MarketConfig[]>('dashboard-markets', initialMarkets);
   const [selectedMarket, setSelectedMarket] = useState<MarketConfig | null>(null);
   const [isSettingsOpen, setIsSettingsOpen] = useState(false);
-  const [useTradingViewChart, setUseTradingViewChart] = useLocalStorage<boolean>('use-tradingview-chart', false);
 
   // Fetch token info for the selected market
   const { tokenInfo } = useTokenInfo(selectedMarket?.tokenAddress);
@@ -74,8 +72,7 @@ export default function Dashboard() {
 
   // Callback to fetch all markets data
   const fetchAllMarketsData = useCallback(async () => {
-    const { rpcUrl } = getConfig();
-    const connection = new (await import('@/lib/solana')).SolanaConnection(rpcUrl);
+    const connection = new (await import('@/lib/solana')).SolanaConnection(getRpcUrl());
     const newData = new Map();
 
     for (const market of markets) {
@@ -171,14 +168,6 @@ export default function Dashboard() {
             lastUpdated={lastUpdated}
             onRefresh={refetch}
           />
-          <button
-            onClick={() => setUseTradingViewChart(!useTradingViewChart)}
-            className="flex items-center gap-2 px-4 py-2 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 hover:text-white transition-colors text-sm border border-dark-600"
-            title={useTradingViewChart ? 'Switch to DexScreener' : 'Enable experimental chart with position markers'}
-          >
-            <Activity className="w-4 h-4" />
-            {useTradingViewChart ? 'Custom Chart (Beta)' : 'DexScreener'}
-          </button>
         </div>
 
         {/* Market Stats Section */}
@@ -276,19 +265,11 @@ export default function Dashboard() {
         <div className="grid grid-cols-1 lg:grid-cols-4 gap-6 mb-8">
           {/* Chart - 75% on large screens */}
           <div className="lg:col-span-3">
-            {useTradingViewChart ? (
-              <TradingViewChart
-                market={selectedMarket}
-                underlyingAssetAddress={selectedMarket?.underlyingAssetAddress}
-                className="h-[620px] lg:h-[775px]"
-              />
-            ) : (
-              <DexScreenerChart
-                market={selectedMarket}
-                underlyingAssetAddress={selectedMarket?.underlyingAssetAddress}
-                className="h-[620px] lg:h-[775px]"
-              />
-            )}
+            <DexScreenerChart
+              market={selectedMarket}
+              underlyingAssetAddress={selectedMarket?.underlyingAssetAddress}
+              className="h-[620px] lg:h-[775px]"
+            />
           </div>
 
           {/* Trading Panel - 25% on large screens */}

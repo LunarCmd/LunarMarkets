@@ -4,6 +4,7 @@ import { useState, useRef, ChangeEvent, useMemo, useEffect } from 'react';
 import { MarketConfig, AccountData } from '@/types';
 import { cn, formatAmount } from '@/lib/utils';
 import { saveEntryPrice } from '@/lib/entryPriceCache';
+import { savePositionMarker } from '@/lib/positionMarkers';
 import { useWallet } from '@/contexts/WalletContext';
 import { PublicKey } from '@solana/web3.js';
 import { buildInitUserTransaction, buildDepositTransaction, buildWithdrawTransaction, buildTradeTransaction } from '@/lib/transactions';
@@ -38,6 +39,7 @@ interface TradingPanelProps {
   unitScale?: number;           // Unit scale from slab config
   totalOpenInterest: BN;
   oraclePriceE6: BN;            // Oracle price in E6 format
+  initialMarginBps: BN;         // Initial margin requirement in basis points (e.g., 1000 = 10% = 10x max leverage)
   baseSymbol: string;           // Base token symbol (e.g., LIQUID)
   baseDecimals: number;         // Base token decimals (e.g., 6)
   collateralSymbol: string;     // Collateral token symbol (e.g., SOL)
@@ -59,6 +61,7 @@ export function TradingPanel({
   unitScale,
   totalOpenInterest,
   oraclePriceE6,
+  initialMarginBps,
   baseSymbol,
   baseDecimals,
   collateralSymbol,
@@ -136,15 +139,6 @@ export function TradingPanel({
     return () => clearInterval(interval);
   }, [publicKey, connection]);
 
-  // Filter user's accounts (only those belonging to connected wallet with non-zero positions)
-  const userAccounts = useMemo(() => {
-    if (!publicKey) return [];
-    return accounts.filter(a =>
-      a.kind === 0 &&
-      !a.positionSize.isZero() &&
-      a.owner.equals(publicKey)
-    );
-  }, [accounts, publicKey]);
 
   // Calculate estimated position size for display only
   // The protocol converts SOL to base tokens internally using its oracle
@@ -158,13 +152,13 @@ export function TradingPanel({
     const leverageFloat = parseFloat(leverage);
     const positionValueInSOL = collateralFloat * leverageFloat;
 
-    // Estimate base tokens for UI display (not used in transaction)
-    const scaleFactor = 8;
-    const exchangeRate = oraclePriceE6.toNumber() / scaleFactor;
-    const estimatedBaseTokens = positionValueInSOL * exchangeRate;
+    // Use Percolator's formula: position_size = notional_lamports × 1,000,000 / oracle_price_e6
+    const positionValueLamports = positionValueInSOL * Math.pow(10, collateralDecimals);
+    const positionSize = (positionValueLamports * 1_000_000) / oraclePriceE6.toNumber();
+    const estimatedBaseTokens = positionSize / Math.pow(10, baseDecimals);
 
     return estimatedBaseTokens;
-  }, [collateralAmount, leverage, oraclePriceE6]);
+  }, [collateralAmount, leverage, oraclePriceE6, collateralDecimals, baseDecimals]);
 
   // Calculate estimated liquidation price (simplified)
   // Assumes ~10% maintenance margin requirement
@@ -201,9 +195,12 @@ export function TradingPanel({
     return Math.floor(buffered * 10000) / 10000;
   }, [userAccount, collateralDecimals]);
 
-  // Protocol max leverage with safety buffer
-  // Protocol allows 10x, but we limit to 9.5x to ensure adequate margin buffer
-  const PROTOCOL_MAX_LEVERAGE = 9.5;
+  // Calculate max leverage from market's initial margin requirement
+  // initial_margin_bps = 1000 (10%) → max leverage = 10x
+  // initial_margin_bps = 5000 (50%) → max leverage = 2x
+  const protocolMaxLeverage = 10000 / initialMarginBps.toNumber();
+  // Apply small safety buffer to stay below the absolute max
+  const PROTOCOL_MAX_LEVERAGE = protocolMaxLeverage * 0.95;
 
   // Dynamic max leverage based on collateral amount
   // If using 50% of capital, can only achieve 5x effective leverage (50% × 10x = 5x)
@@ -441,27 +438,28 @@ export function TradingPanel({
       return;
     }
 
+    if (!userAccount || userAccount.capital.isZero()) {
+      setTxStatus('Please deposit capital into your account first (use Deposit tab)');
+      return;
+    }
+
     setIsLoading(true);
     setTxStatus('Calculating position size...');
 
     try {
-      // CRITICAL: The oracle price represents SOL/BASE exchange rate, NOT a USD price!
-      // oraclePriceE6 encodes: (collateral_per_base_token × 1e6)
-      // For BUTTCOIN/SOL: oraclePriceE6 = SOL_per_BUTTCOIN × 1e6
+      // CRITICAL: Percolator position sizing formula
+      // From percolator.rs: notional_e6 = position_size × oracle_price_e6 / 1,000,000
+      // Therefore: position_size = notional_lamports × 1,000,000 / oracle_price_e6
       //
-      // There's also a 1000x scaling factor due to decimal mismatch:
-      // The oracle assumes base token has 9 decimals (like SOL), but BUTTCOIN has 6 decimals.
-      // This creates a 10^(9-6) = 1000x adjustment factor.
+      // The oracle_price_e6 is in "collateral per base token × 1e6" format
+      // Position sizes are calculated directly - NO exchange rate conversion needed!
 
       const oraclePriceE6Num = oraclePriceE6.toNumber();
-      const solPerButtcoin = oraclePriceE6Num / 1e6; // SOL per BUTTCOIN
-      const exchangeRate = (1 / solPerButtcoin) * 1000; // BUTTCOIN per SOL (with decimal adjustment)
 
-      console.log('Exchange Rate Calculation:', {
+      console.log('Oracle Price:', {
         oraclePriceE6: oraclePriceE6Num,
-        solPerButtcoin: solPerButtcoin.toFixed(9),
-        exchangeRate: exchangeRate.toFixed(2) + ' BUTTCOIN per SOL',
-        note: 'Oracle price is SOL/BUTTCOIN rate with 1000x decimal adjustment'
+        interpretation: `${(oraclePriceE6Num / 1e6).toFixed(9)} ${collateralSymbol} per ${baseSymbol}`,
+        formula: 'position_size = notional_lamports × 1,000,000 / oracle_price_e6'
       });
 
       setTxStatus('Building trade transaction...');
@@ -477,26 +475,42 @@ export function TradingPanel({
       const totalCapitalForLeverage = availableCapital; // Use full available capital
       const positionValueInSOL = totalCapitalForLeverage * leverageFloat;
 
-      // Convert SOL to BUTTCOIN using exchange rate
-      const positionInButtcoin = positionValueInSOL * exchangeRate;
+      // Apply safety reduction to position size to account for:
+      // - Protocol margin requirements
+      // - Trading fees
+      // - Potential price movement between calculation and execution
+      // Dynamic buffer based on market's max leverage:
+      // - High leverage markets (10x): ~6% buffer
+      // - Medium leverage markets (5x): ~8% buffer
+      // - Low leverage markets (2x): ~12% buffer
+      const bufferPercent = 5 + Math.min(15, 15 / protocolMaxLeverage);
+      const POSITION_SAFETY_BUFFER = 1 - (bufferPercent / 100);
+      const safePositionValueInSOL = positionValueInSOL * POSITION_SAFETY_BUFFER;
 
-      // Scale to BUTTCOIN native units (6 decimals)
-      const positionSizeFloat = positionInButtcoin * Math.pow(10, baseDecimals);
+      // Calculate position_size using Percolator's formula:
+      // position_size = notional_lamports × 1,000,000 / oracle_price_e6
+      const safePositionValueLamports = safePositionValueInSOL * Math.pow(10, collateralDecimals);
+      const positionSizeFloat = (safePositionValueLamports * 1_000_000) / oraclePriceE6Num;
+
       const sizeBN = side === 'long'
         ? new BN(Math.floor(positionSizeFloat))
         : new BN(Math.floor(positionSizeFloat)).neg();
 
-      // Note: unitScale is 0 for this market (no scaling, 1:1 lamports to units)
+      // Calculate display amount in base token
+      const positionInBaseToken = positionSizeFloat / Math.pow(10, baseDecimals);
 
       console.log('📊 Trade Summary:', {
-        collateral: `${collateralAmount} SOL`,
-        leverage: `${leverage}x`,
-        positionValueInSOL: `${positionValueInSOL.toFixed(4)} SOL`,
-        exchangeRate: `${exchangeRate.toFixed(2)} BUTTCOIN/SOL`,
-        positionInButtcoin: `${positionInButtcoin.toFixed(2)} BUTTCOIN`,
+        collateral: `${collateralAmount} ${collateralSymbol}`,
+        requestedLeverage: `${leverage}x`,
+        totalCapital: `${totalCapitalForLeverage.toFixed(4)} ${collateralSymbol}`,
+        rawPositionValue: `${positionValueInSOL.toFixed(4)} ${collateralSymbol}`,
+        safePositionValue: `${safePositionValueInSOL.toFixed(4)} ${collateralSymbol} (${POSITION_SAFETY_BUFFER * 100}% of requested)`,
+        safePositionValueLamports: `${safePositionValueLamports.toFixed(0)} lamports`,
+        oraclePriceE6: oraclePriceE6Num,
+        positionInBaseToken: `${positionInBaseToken.toFixed(2)} ${baseSymbol}`,
         positionSize: sizeBN.toString() + ' units',
         side,
-        formula: `${collateralAmount} SOL × ${leverage}x × ${exchangeRate.toFixed(0)} BUTTCOIN/SOL × 10^${baseDecimals} = ${sizeBN.toString()} units`
+        note: `${(1 - POSITION_SAFETY_BUFFER) * 100}% safety buffer applied`
       });
 
       // Find an LP to trade against (use first LP account)
@@ -531,6 +545,18 @@ export function TradingPanel({
           sizeBN.toString(),
           side
         );
+
+        // Save position marker for chart display
+        savePositionMarker({
+          marketId: market.id,
+          accountId: userAccountIdx.toString(),
+          walletAddress: publicKey.toBase58(),
+          entryPrice: oraclePriceE6Num / 1e6, // Convert E6 to decimal
+          entryTime: Math.floor(Date.now() / 1000), // Unix timestamp in seconds
+          side,
+          positionSize: positionInBaseToken.toFixed(2), // Display value
+          collateralAmount: collateralAmount,
+        });
       }
 
       setTxStatus(`Trade successful! ${signature.slice(0, 8)}...`);
@@ -545,47 +571,6 @@ export function TradingPanel({
     }
   };
 
-  const executeClose = async (account: AccountData) => {
-    if (!isConnected || !publicKey || !market) return;
-
-    setIsLoading(true);
-    setTxStatus(`Closing position #${account.accountId.toString()}...`);
-
-    try {
-      // Close position by trading opposite direction with full size
-      const closeSizeBN = account.positionSize.neg();
-
-      // Find an LP to trade against
-      const lpAccount = accounts.find(a => a.kind === 1);
-      if (!lpAccount) {
-        throw new Error('No LP available to trade against');
-      }
-
-      const transaction = await buildTradeTransaction({
-        connection,
-        userPublicKey: publicKey,
-        lpOwner: lpAccount.owner,
-        slabAddress: new PublicKey(market.slabAddress),
-        programId: new PublicKey(market.programId),
-        oracleAddress: market.oracleAddress ? new PublicKey(market.oracleAddress) : PublicKey.default,
-        matcherProgram: lpAccount.matcherProgram,
-        matcherContext: lpAccount.matcherContext,
-        lpIdx: lpAccount.accountId.toNumber(),
-        userIdx: account.accountId.toNumber(),
-        size: closeSizeBN,
-      });
-
-      setTxStatus('Sending transaction...');
-      const signature = await signAndSendTransaction(transaction);
-
-      setTxStatus(`Position closed! ${signature.slice(0, 8)}...`);
-      setTimeout(() => setTxStatus(null), 3000);
-    } catch (err) {
-      setTxStatus('Close failed: ' + (err as Error).message);
-    } finally {
-      setIsLoading(false);
-    }
-  };
 
   return (
     <div className={cn(
@@ -968,12 +953,14 @@ export function TradingPanel({
               </div>
               <div className="flex justify-between mt-1 text-xs text-gray-600">
                 <span>1x</span>
-                <span>5x</span>
-                <span className={maxLeverage < PROTOCOL_MAX_LEVERAGE ? "text-gray-700" : ""}>10x</span>
+                <span>{(protocolMaxLeverage / 2).toFixed(1)}x</span>
+                <span className={maxLeverage < PROTOCOL_MAX_LEVERAGE ? "text-gray-700" : "text-primary-400"}>
+                  {protocolMaxLeverage.toFixed(1)}x max
+                </span>
               </div>
               {maxLeverage < PROTOCOL_MAX_LEVERAGE && collateralAmount && (
                 <p className="mt-2 text-xs text-yellow-400/80">
-                  Using {((parseFloat(collateralAmount) / availableCapital) * 100).toFixed(0)}% of capital • Max leverage: {maxLeverage.toFixed(1)}x
+                  Using {((parseFloat(collateralAmount) / availableCapital) * 100).toFixed(0)}% of capital • Max leverage: {maxLeverage.toFixed(1)}x with this capital
                 </p>
               )}
             </div>
@@ -1025,6 +1012,40 @@ export function TradingPanel({
               </div>
             )}
 
+            {/* LP Liquidity Warning */}
+            {(() => {
+              const lpAccounts = accounts.filter(a => a.kind === 1);
+              if (lpAccounts.length === 0) {
+                return (
+                  <div className="bg-red-900/30 border border-red-700 rounded-lg p-3">
+                    <p className="text-xs text-red-300">
+                      ⚠️ <span className="font-medium">No LPs available</span> - Trades require an LP to take the opposite side
+                    </p>
+                  </div>
+                );
+              }
+
+              const maxLPCapital = lpAccounts.reduce((max, lp) =>
+                lp.capital.gt(max) ? lp.capital : max,
+                new BN(0)
+              ).toNumber() / Math.pow(10, collateralDecimals);
+
+              const positionValue = parseFloat(collateralAmount || '0') * parseFloat(leverage);
+              const positionTooLarge = positionValue > maxLPCapital * protocolMaxLeverage;
+
+              if (positionTooLarge) {
+                return (
+                  <div className="bg-yellow-900/30 border border-yellow-700 rounded-lg p-3">
+                    <p className="text-xs text-yellow-300">
+                      ⚠️ <span className="font-medium">Low LP liquidity</span> - Largest LP has {maxLPCapital.toFixed(2)} {collateralSymbol} capital.
+                      Large positions may fail if no LP can take the trade.
+                    </p>
+                  </div>
+                );
+              }
+              return null;
+            })()}
+
             {/* Submit Button */}
             <button
               onClick={executeTrade}
@@ -1052,55 +1073,6 @@ export function TradingPanel({
         )}
       </div>
 
-      {/* Active Positions Section */}
-      {userAccounts.length > 0 && (
-        <div className="border-t border-dark-700 px-4 py-3 bg-dark-900/30">
-          <p className="text-xs font-medium text-gray-400 mb-2">
-            Your Positions ({userAccounts.length})
-          </p>
-          <div className="space-y-2 max-h-[400px] overflow-y-auto">
-            {userAccounts.slice(0, 8).map((acc, i) => {
-              const isLong = !acc.positionSize.isNeg();
-              return (
-                <div key={i} className="flex items-center justify-between p-2 bg-dark-700/30 rounded-lg">
-                  <div className="flex items-center gap-2">
-                    {isLong ? (
-                      <TrendingUp className="w-3.5 h-3.5 text-green-400" />
-                    ) : (
-                      <TrendingDown className="w-3.5 h-3.5 text-red-400" />
-                    )}
-                    <div>
-                      <span className={cn(
-                        "text-xs font-medium",
-                        isLong ? "text-green-400" : "text-red-400"
-                      )}>
-                        {isLong ? 'LONG' : 'SHORT'}
-                      </span>
-                      <p className="text-xs text-gray-500">
-                        {formatAmount(acc.positionSize.abs(), baseDecimals)} {baseSymbol}
-                      </p>
-                    </div>
-                  </div>
-                  {isConnected && (
-                    <button
-                      onClick={() => executeClose(acc)}
-                      disabled={isLoading}
-                      className="px-2 py-1 bg-dark-600 hover:bg-dark-500 rounded text-xs text-gray-300 transition-colors"
-                    >
-                      Close
-                    </button>
-                  )}
-                </div>
-              );
-            })}
-            {userAccounts.length > 8 && (
-              <p className="text-xs text-gray-600 text-center">
-                +{userAccounts.length - 8} more positions
-              </p>
-            )}
-          </div>
-        </div>
-      )}
 
       {/* Wallet Modal */}
       {showWalletModal && (

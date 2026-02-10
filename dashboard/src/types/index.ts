@@ -64,6 +64,9 @@ export interface SlabData {
   oraclePriceE6: BN;
   totalOpenInterest: BN;
   cTot: BN;
+  initialMarginBps: BN;
+  maintenanceMarginBps: BN;
+  tradingFeeBps: BN;
 }
 
 export interface TokenInfo {
@@ -87,6 +90,10 @@ export interface MarketStats {
   totalUsers: number;         // Number of User accounts
   totalLPs: number;           // Number of LP accounts
   insuranceFundBalance: BN;   // Insurance fund in collateral token (SOL)
+  totalLPCapital: BN;         // Total capital across all LPs
+  largestLPCapital: BN;       // Largest single LP capital
+  totalLongs: number;         // Number of long positions
+  totalShorts: number;        // Number of short positions
 }
 
 export type LoadingState = 'idle' | 'loading' | 'success' | 'error';

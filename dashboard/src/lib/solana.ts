@@ -227,7 +227,7 @@ export async function fetchSlabData(
 
   // Parse engine state
   const engineData = data.slice(ENGINE_OFF);
-  
+
   const vault = readU128(engineData, ENGINE_VAULT_OFF);
   const insuranceBalance = readU128(engineData, ENGINE_INSURANCE_OFF);
   const totalOpenInterest = readU128(engineData, ENGINE_TOTAL_OI_OFF);
@@ -238,6 +238,16 @@ export async function fetchSlabData(
   const numUsedAccounts = readU16(engineData, ENGINE_NUM_USED_OFF);
   const nextAccountId = readU64(engineData, ENGINE_NEXT_ACCOUNT_ID_OFF);
   const freeHead = readU16(engineData, ENGINE_FREE_HEAD_OFF);
+
+  // Parse RiskParams (at ENGINE_PARAMS_OFF = 48)
+  // RiskParams layout:
+  //   warmup_period_slots: u64 (offset 0)
+  //   maintenance_margin_bps: u64 (offset 8)
+  //   initial_margin_bps: u64 (offset 16)
+  //   trading_fee_bps: u64 (offset 24)
+  const maintenanceMarginBps = readU64(engineData, ENGINE_PARAMS_OFF + 8);
+  const initialMarginBps = readU64(engineData, ENGINE_PARAMS_OFF + 16);
+  const tradingFeeBps = readU64(engineData, ENGINE_PARAMS_OFF + 24);
 
   // Calculate accounts offset from start of data
   const accountsOffset = ENGINE_OFF + ENGINE_ACCOUNTS_OFF;
@@ -291,6 +301,9 @@ export async function fetchSlabData(
     oraclePriceE6,
     totalOpenInterest,
     cTot,
+    initialMarginBps,
+    maintenanceMarginBps,
+    tradingFeeBps,
   };
 }
 

@@ -142,10 +142,17 @@ function AccountRow({ account, baseSymbol, baseDecimals, collateralSymbol, colla
             "text-sm font-medium",
             isLong ? "text-green-400" : "text-red-400"
           )}>
-            {formatAmount(account.positionSize.abs(), baseDecimals)}
+            {isLong ? 'Long' : 'Short'}
           </span>
-          <span className="text-xs opacity-70">{baseSymbol}</span>
         </div>
+      </td>
+      <td className="px-4 py-3 whitespace-nowrap">
+        <span className={cn(
+          "text-sm",
+          isLong ? "text-green-400" : "text-red-400"
+        )}>
+          {formatAmount(account.positionSize.abs(), baseDecimals)} {baseSymbol}
+        </span>
       </td>
       <td className="px-4 py-3 whitespace-nowrap text-right">
         <span className="text-sm text-gray-400">{leverage.toFixed(2)}x</span>
@@ -265,17 +272,9 @@ export function AccountsTable({
     <div className="bg-dark-800 rounded-xl border border-dark-700 overflow-hidden">
       <div className="px-6 py-4 border-b border-dark-700 flex items-center justify-between">
         <h2 className="text-lg font-semibold text-white">Open Positions</h2>
-        <div className="flex items-center gap-3">
-          {isLoading && (
-            <div className="flex items-center gap-2 text-xs text-gray-500">
-              <div className="w-3 h-3 border border-primary-500 border-t-transparent rounded-full animate-spin" />
-              Updating...
-            </div>
-          )}
-          <span className="text-sm text-gray-500">
-            {positions.length} {positions.length === 1 ? 'position' : 'positions'} • PnL calculated from entry vs mark price
-          </span>
-        </div>
+        <span className="text-sm text-gray-500">
+          {positions.length} {positions.length === 1 ? 'position' : 'positions'} • PnL calculated from entry vs mark price
+        </span>
       </div>
 
       <div className="max-h-[500px] overflow-y-auto">
@@ -308,6 +307,9 @@ export function AccountsTable({
                   PnL
                   <SortIcon field="pnl" />
                 </div>
+              </th>
+              <th className="px-4 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
+                Direction
               </th>
               <th
                 onClick={() => handleSort('position')}

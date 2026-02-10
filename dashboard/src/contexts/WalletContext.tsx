@@ -193,25 +193,25 @@ export function WalletProvider({ children }: { children: ReactNode }) {
         pubkey = pkSource;
       }
       // Check if it has _bn property (Solflare's internal format)
-      else if (pkSource._bn) {
+      else if ((pkSource as any)._bn) {
         // Create from the internal BN representation
-        pubkey = new PublicKey(pkSource._bn.toArray());
+        pubkey = new PublicKey((pkSource as any)._bn.toArray());
       }
       // Check if it's a string (base58)
       else if (typeof pkSource === 'string') {
         pubkey = new PublicKey(pkSource);
       }
       // Check if it has toBase58 method
-      else if (typeof pkSource.toBase58 === 'function') {
-        pubkey = new PublicKey(pkSource.toBase58());
+      else if (typeof (pkSource as any).toBase58 === 'function') {
+        pubkey = new PublicKey((pkSource as any).toBase58());
       }
       // Check if it has toString method
-      else if (typeof pkSource.toString === 'function') {
-        pubkey = new PublicKey(pkSource.toString());
+      else if (typeof (pkSource as any).toString === 'function') {
+        pubkey = new PublicKey((pkSource as any).toString());
       }
       // Check if it has toBytes method
-      else if (typeof pkSource.toBytes === 'function') {
-        const bytes = pkSource.toBytes();
+      else if (typeof (pkSource as any).toBytes === 'function') {
+        const bytes = (pkSource as any).toBytes();
         pubkey = new PublicKey(bytes);
       }
       // Check if it's an array

@@ -37,12 +37,28 @@ export function useMarketData(market: MarketConfig | null): UseMarketDataReturn 
       setData(slabData);
       
       // Calculate stats - matching official app approach
+      // Only count LPs with capital > 0
+      const lpAccounts = slabData.accounts.filter(a => a.kind === 1 && !a.capital.isZero());
+      const totalLPCapital = lpAccounts.reduce((sum, lp) => sum.add(lp.capital), new BN(0));
+      const largestLPCapital = lpAccounts.reduce((max, lp) =>
+        lp.capital.gt(max) ? lp.capital : max, new BN(0)
+      );
+
+      // Count long vs short positions (users only, with non-zero positions)
+      const userPositions = slabData.accounts.filter(a => a.kind === 0 && !a.positionSize.isZero());
+      const totalLongs = userPositions.filter(a => !a.positionSize.isNeg()).length;
+      const totalShorts = userPositions.filter(a => a.positionSize.isNeg()).length;
+
       const marketStats: MarketStats = {
         totalValueLocked: slabData.vaultBalance,  // Vault in SOL
         totalAccounts: slabData.totalAccounts,
         totalUsers: slabData.accounts.filter(a => a.kind === 0).length,
-        totalLPs: slabData.accounts.filter(a => a.kind === 1).length,
+        totalLPs: lpAccounts.length,  // Only LPs with capital > 0
         insuranceFundBalance: slabData.insuranceFund,  // Insurance in SOL
+        totalLPCapital,
+        largestLPCapital,
+        totalLongs,
+        totalShorts,
       };
       
       setStats(marketStats);

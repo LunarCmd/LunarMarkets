@@ -1,11 +1,24 @@
 import { DashboardConfig, MarketConfig } from '@/types';
+import { PublicKey } from '@solana/web3.js';
 
 export interface ExtendedDashboardConfig extends DashboardConfig {
   marketName: string;
   marketDescription: string;
+  appLogo?: string;
   collateralSymbol: string;
   underlyingSymbol: string;
   invertPrice: boolean;
+}
+
+// Validate if a string is a valid Solana public key
+function isValidPublicKey(address: string | undefined): boolean {
+  if (!address || address.trim() === '') return false;
+  try {
+    new PublicKey(address);
+    return true;
+  } catch {
+    return false;
+  }
 }
 
 function parseMarkets(): MarketConfig[] {
@@ -18,7 +31,15 @@ function parseMarkets(): MarketConfig[] {
   const programId = process.env.NEXT_PUBLIC_PROGRAM_ID;
   const matcherProgramId = process.env.NEXT_PUBLIC_MATCHER_PROGRAM_ID;
 
-  if (slabAddress && tokenAddress && programId && matcherProgramId) {
+  // Validate all required addresses are valid public keys
+  if (
+    slabAddress && tokenAddress && programId && matcherProgramId &&
+    isValidPublicKey(slabAddress) &&
+    isValidPublicKey(tokenAddress) &&
+    isValidPublicKey(programId) &&
+    isValidPublicKey(matcherProgramId) &&
+    (!underlyingAssetAddress || isValidPublicKey(underlyingAssetAddress))
+  ) {
     const collateralSymbol = process.env.NEXT_PUBLIC_COLLATERAL_SYMBOL || 'SOL';
     const underlyingSymbol = process.env.NEXT_PUBLIC_UNDERLYING_SYMBOL || 'LIQUID';
     // Default: LIQUID=6 decimals, SOL=9 decimals
@@ -49,14 +70,27 @@ function parseMarkets(): MarketConfig[] {
     try {
       const parsed = JSON.parse(marketsJson);
       const additionalMarkets = Array.isArray(parsed) ? parsed : [parsed];
-      markets.push(...additionalMarkets.map((m: any) => ({
-        ...m,
-        underlyingSymbol: m.underlyingSymbol || 'LIQUID',
-        underlyingDecimals: m.underlyingDecimals ?? 6,
-        collateralSymbol: m.collateralSymbol || 'SOL',
-        collateralDecimals: m.collateralDecimals ?? 9,
-        invertPrice: m.invertPrice || false,
-      })));
+
+      // Validate and filter additional markets
+      additionalMarkets.forEach((m: any) => {
+        if (
+          isValidPublicKey(m.slabAddress) &&
+          isValidPublicKey(m.tokenAddress) &&
+          isValidPublicKey(m.programId) &&
+          isValidPublicKey(m.matcherProgramId)
+        ) {
+          markets.push({
+            ...m,
+            underlyingSymbol: m.underlyingSymbol || 'LIQUID',
+            underlyingDecimals: m.underlyingDecimals ?? 6,
+            collateralSymbol: m.collateralSymbol || 'SOL',
+            collateralDecimals: m.collateralDecimals ?? 9,
+            invertPrice: m.invertPrice || false,
+          });
+        } else {
+          console.error('Invalid market configuration - skipping:', m.id || 'unknown');
+        }
+      });
     } catch (e) {
       console.error('Failed to parse NEXT_PUBLIC_MARKETS:', e);
     }
@@ -75,6 +109,7 @@ export function getConfig(): ExtendedDashboardConfig {
     refreshInterval: parseInt(process.env.NEXT_PUBLIC_REFRESH_INTERVAL || '5000', 10),
     appName: process.env.NEXT_PUBLIC_APP_NAME || 'Percolator Dashboard',
     appDescription: process.env.NEXT_PUBLIC_APP_DESCRIPTION || 'Risk Engine Explorer',
+    appLogo: process.env.NEXT_PUBLIC_APP_LOGO || '', // Path to logo image (e.g., '/logo.png')
     marketName: process.env.NEXT_PUBLIC_MARKET_NAME || 'LIQUID/SOL PERP',
     marketDescription: process.env.NEXT_PUBLIC_MARKET_DESCRIPTION || 'Trade LIQUID with SOL collateral',
     collateralSymbol: process.env.NEXT_PUBLIC_COLLATERAL_SYMBOL || 'SOL',

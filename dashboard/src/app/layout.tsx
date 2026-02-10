@@ -6,9 +6,16 @@ import { Providers } from './providers';
 
 const inter = Inter({ subsets: ['latin'] });
 
+const config = getConfig();
+
 export const metadata: Metadata = {
-  title: getConfig().appName,
-  description: getConfig().appDescription,
+  title: config.appName,
+  description: config.appDescription,
+  icons: config.appLogo ? {
+    icon: config.appLogo,
+    shortcut: config.appLogo,
+    apple: config.appLogo,
+  } : undefined,
 };
 
 export default function RootLayout({
@@ -17,7 +24,7 @@ export default function RootLayout({
   children: React.ReactNode;
 }) {
   return (
-    <html lang="en" className="dark">
+    <html lang="en" className="dark" suppressHydrationWarning>
       <body className={inter.className}>
         <Providers>{children}</Providers>
       </body>

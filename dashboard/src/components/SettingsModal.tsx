@@ -173,26 +173,40 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                 <div className="space-y-3">
                   <div>
                     <label className="block text-sm text-gray-400 mb-1">Custom RPC URL (Optional)</label>
-                    <input
-                      type="text"
-                      value={customRpcUrl}
-                      onChange={(e) => setCustomRpcUrl(e.target.value)}
-                      placeholder="https://api.mainnet-beta.solana.com"
-                      className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white text-sm font-mono focus:border-primary-500 focus:ring-1 focus:ring-primary-500 outline-none"
-                    />
+                    <div className="flex gap-2">
+                      <input
+                        type="text"
+                        value={customRpcUrl}
+                        onChange={(e) => setCustomRpcUrl(e.target.value)}
+                        placeholder="https://api.mainnet-beta.solana.com"
+                        className="flex-1 px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white text-sm font-mono focus:border-primary-500 focus:ring-1 focus:ring-primary-500 outline-none"
+                      />
+                      <button
+                        onClick={() => {
+                          // Save is automatic via useLocalStorage, just reload
+                          window.location.reload();
+                        }}
+                        className="px-4 py-2 bg-primary-600 hover:bg-primary-500 text-white text-sm rounded-lg transition-colors font-medium"
+                      >
+                        Save & Reload
+                      </button>
+                    </div>
                     <p className="mt-1 text-xs text-gray-500">
                       {customRpcUrl ?
-                        'Using your custom RPC endpoint' :
+                        'Using your custom RPC endpoint. Click "Save & Reload" to apply changes.' :
                         'Leave empty to use default RPC. Recommended providers: Helius, QuickNode, Alchemy'
                       }
                     </p>
                   </div>
                   {customRpcUrl && (
                     <button
-                      onClick={() => setCustomRpcUrl('')}
+                      onClick={() => {
+                        setCustomRpcUrl('');
+                        setTimeout(() => window.location.reload(), 100);
+                      }}
                       className="text-xs text-red-400 hover:text-red-300 transition-colors"
                     >
-                      Clear custom RPC
+                      Clear custom RPC & Reload
                     </button>
                   )}
                 </div>

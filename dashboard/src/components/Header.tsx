@@ -22,7 +22,7 @@ interface HeaderProps {
 
 export function Header({ selectedMarket, onMarketChange, onSettingsClick }: HeaderProps) {
   const [isDropdownOpen, setIsDropdownOpen] = useState(false);
-  const { markets, appName, appDescription } = getConfig();
+  const { markets, appName, appDescription, appLogo } = getConfig();
   const { isConnected, latency } = useConnectionStatus();
   const dropdownRef = useRef<HTMLDivElement>(null);
 
@@ -52,9 +52,17 @@ export function Header({ selectedMarket, onMarketChange, onSettingsClick }: Head
           {/* Logo and Title */}
           <div className="flex items-center gap-4">
             <div className="flex items-center gap-2">
-              <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center">
-                <Layers className="w-5 h-5 text-white" />
-              </div>
+              {appLogo ? (
+                <img
+                  src={appLogo}
+                  alt={appName}
+                  className="w-8 h-8 rounded-lg object-contain"
+                />
+              ) : (
+                <div className="w-8 h-8 bg-primary-500 rounded-lg flex items-center justify-center">
+                  <Layers className="w-5 h-5 text-white" />
+                </div>
+              )}
               <div>
                 <h1 className="text-lg font-bold text-white">{appName}</h1>
                 <p className="text-xs text-gray-400">{appDescription}</p>

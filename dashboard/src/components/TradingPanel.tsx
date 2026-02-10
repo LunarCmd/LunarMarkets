@@ -8,6 +8,8 @@ import { savePositionMarker } from '@/lib/positionMarkers';
 import { useWallet } from '@/contexts/WalletContext';
 import { PublicKey } from '@solana/web3.js';
 import { buildInitUserTransaction, buildDepositTransaction, buildWithdrawTransaction, buildTradeTransaction } from '@/lib/transactions';
+import { encryptData, decryptData } from '@/lib/crypto';
+import { PinModal } from '@/components/PinModal';
 import BN from 'bn.js';
 import {
   ArrowUpRight,
@@ -78,9 +80,23 @@ export function TradingPanel({
   const [showWalletModal, setShowWalletModal] = useState(false);
   const [walletTab, setWalletTab] = useState<WalletTab>('browser');
   const [privateKeyInput, setPrivateKeyInput] = useState('');
+  const [saveKeypair, setSaveKeypair] = useState(false);
+  const [keypairLabel, setKeypairLabel] = useState('');
+  const [savedKeypairs, setSavedKeypairs] = useState<Array<{label: string; key: string; publicKey: string}>>([]);
+  const [showGeneratedKey, setShowGeneratedKey] = useState(false);
+  const [generatedKeypair, setGeneratedKeypair] = useState<{secretKey: string; publicKey: string} | null>(null);
+  const [showPinModal, setShowPinModal] = useState(false);
+  const [pinModalMode, setPinModalMode] = useState<'set' | 'unlock' | 'change-verify' | 'change-new'>('set');
+  const [pinError, setPinError] = useState('');
+  const [oldPin, setOldPin] = useState<string | null>(null);
+  const [keypairError, setKeypairError] = useState('');
+  const [deleteConfirmPublicKey, setDeleteConfirmPublicKey] = useState<string | null>(null);
+  const [pendingKeypair, setPendingKeypair] = useState<{label: string; key: string; publicKey: string} | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [txStatus, setTxStatus] = useState<string | null>(null);
   const [walletBalance, setWalletBalance] = useState<string>('0');
+  const [failedAttempts, setFailedAttempts] = useState(0);
+  const [mathProblem, setMathProblem] = useState<{question: string; answer: number} | null>(null);
   const fileInputRef = useRef<HTMLInputElement>(null);
 
   const {
@@ -101,11 +117,112 @@ export function TradingPanel({
     clearError,
   } = useWallet();
 
+  // Get or prompt for PIN
+  const getPin = async (): Promise<string> => {
+    return new Promise((resolve) => {
+      // Check session storage first
+      const sessionPin = sessionStorage.getItem('wallet-pin');
+      if (sessionPin) {
+        resolve(sessionPin);
+        return;
+      }
+
+      // Show PIN modal
+      setPinModalMode('unlock');
+      setShowPinModal(true);
+
+      // Wait for PIN submission (will be handled in handlePinSubmit)
+      const checkPin = setInterval(() => {
+        const pin = sessionStorage.getItem('wallet-pin');
+        if (pin) {
+          clearInterval(checkPin);
+          resolve(pin);
+        }
+      }, 100);
+    });
+  };
+
+  // Load failed attempts from localStorage
+  useEffect(() => {
+    const attempts = localStorage.getItem('pin-failed-attempts');
+    if (attempts) {
+      setFailedAttempts(parseInt(attempts, 10));
+    }
+  }, []);
+
+  // Generate math problem for challenge
+  const generateMathProblem = () => {
+    const operations = [
+      { op: '+', fn: (a: number, b: number) => a + b },
+      { op: '-', fn: (a: number, b: number) => a - b },
+      { op: '×', fn: (a: number, b: number) => a * b },
+    ];
+    const operation = operations[Math.floor(Math.random() * operations.length)];
+    const a = Math.floor(Math.random() * 20) + 1;
+    const b = Math.floor(Math.random() * 20) + 1;
+    const answer = operation.fn(a, b);
+    return {
+      question: `${a} ${operation.op} ${b} = ?`,
+      answer
+    };
+  };
+
+  // Wipe all saved keypairs
+  const wipeAllKeypairs = () => {
+    localStorage.removeItem('saved-keypairs-encrypted');
+    localStorage.removeItem('pin-failed-attempts');
+    sessionStorage.removeItem('wallet-pin');
+    setSavedKeypairs([]);
+    setFailedAttempts(0);
+    if (wallet) {
+      disconnectWallet();
+    }
+    setKeypairError('🚨 SECURITY LOCKOUT: All wallet keys have been permanently deleted due to too many failed PIN attempts. 🚨');
+  };
+
+  // Validate math answer
+  const validateMathAnswer = (answer: string): boolean => {
+    if (!mathProblem) return false;
+    const numAnswer = parseInt(answer, 10);
+    return numAnswer === mathProblem.answer;
+  };
+
+  // Load saved keypairs from localStorage
+  useEffect(() => {
+    const loadKeypairs = async () => {
+      try {
+        const saved = localStorage.getItem('saved-keypairs-encrypted');
+        if (saved) {
+          const parsed = JSON.parse(saved);
+          // Check if we have encrypted data
+          if (parsed.encrypted && parsed.data) {
+            // Load the keypair metadata (label, publicKey) but keep keys encrypted
+            // This allows the list to show up without requiring PIN immediately
+            setSavedKeypairs(parsed.data.map((kp: any) => ({
+              label: kp.label,
+              publicKey: kp.publicKey,
+              key: kp.key, // Encrypted key
+              encrypted: true
+            })));
+          } else {
+            // Legacy unencrypted data
+            setSavedKeypairs(parsed);
+          }
+        }
+      } catch (err) {
+        console.error('Error loading saved keypairs:', err);
+      }
+    };
+    loadKeypairs();
+  }, []);
+
   // Close modal when wallet connects successfully
   useEffect(() => {
     if (isConnected && showWalletModal) {
       setShowWalletModal(false);
       setPrivateKeyInput('');
+      setSaveKeypair(false);
+      setKeypairLabel('');
     }
   }, [isConnected, showWalletModal]);
 
@@ -256,7 +373,7 @@ export function TradingPanel({
     );
   }
 
-  const handlePrivateKeyConnect = () => {
+  const handlePrivateKeyConnect = async () => {
     try {
       // Remove brackets if present
       let input = privateKeyInput.trim();
@@ -265,24 +382,392 @@ export function TradingPanel({
       }
 
       // Parse private key from comma-separated bytes
-      const decoded = new Uint8Array(
-        input.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
-      );
+      let decoded: Uint8Array;
+      if (input.includes(',')) {
+        decoded = new Uint8Array(
+          input.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+        );
+      } else {
+        // Try base58 decode
+        const { bs58 } = require('@solana/web3.js');
+        decoded = bs58.decode(input);
+      }
+
+      if (decoded.length === 64) {
+        // Save keypair if requested
+        if (saveKeypair && keypairLabel.trim()) {
+          const { Keypair } = require('@solana/web3.js');
+          const kp = Keypair.fromSecretKey(decoded);
+          const publicKeyStr = kp.publicKey.toString();
+
+          const newKeypair = {
+            label: keypairLabel.trim(),
+            key: privateKeyInput.trim(),
+            publicKey: publicKeyStr
+          };
+
+          // Store pending keypair and show PIN modal if not set
+          setPendingKeypair(newKeypair);
+          if (!sessionStorage.getItem('wallet-pin')) {
+            setPinModalMode('set');
+            setShowPinModal(true);
+            return; // Will continue after PIN is set
+          } else {
+            await saveEncryptedKeypair(newKeypair);
+          }
+        }
+
+        connectKeypair(decoded);
+        setShowWalletModal(false);
+        setPrivateKeyInput('');
+        setSaveKeypair(false);
+        setKeypairLabel('');
+      } else {
+        throw new Error('Invalid key length');
+      }
+    } catch (err) {
+      setKeypairError('Invalid private key format. Enter comma-separated bytes (with or without brackets) or base58 string.');
+    }
+  };
+
+  const saveEncryptedKeypair = async (keypair: {label: string; key: string; publicKey: string}) => {
+    try {
+      const pin = sessionStorage.getItem('wallet-pin');
+      if (!pin) {
+        setPendingKeypair(keypair);
+        setPinModalMode('set');
+        setShowPinModal(true);
+        return;
+      }
+
+      // Encrypt the private key
+      const encryptedKey = await encryptData(keypair.key, pin);
+      const encryptedKeypair = {
+        ...keypair,
+        key: encryptedKey,
+        encrypted: true
+      };
+
+      // Load existing keypairs
+      const existing = await loadDecryptedKeypairs();
+      const updated = [...existing.filter(k => k.publicKey !== keypair.publicKey), encryptedKeypair];
+
+      // Save encrypted
+      localStorage.setItem('saved-keypairs-encrypted', JSON.stringify({
+        encrypted: true,
+        data: updated
+      }));
+
+      // Update state with decrypted version for display
+      setSavedKeypairs(updated);
+    } catch (err) {
+      console.error('Error saving keypair:', err);
+      setKeypairError('Error saving keypair. Please try again.');
+    }
+  };
+
+  const loadDecryptedKeypairs = async (): Promise<any[]> => {
+    try {
+      const saved = localStorage.getItem('saved-keypairs-encrypted');
+      if (!saved) return [];
+
+      const parsed = JSON.parse(saved);
+      if (parsed.encrypted && parsed.data) {
+        return parsed.data;
+      }
+      return parsed;
+    } catch (err) {
+      return [];
+    }
+  };
+
+  const handleLoadSavedKeypair = async (encryptedKey: string, isEncrypted: boolean, publicKey?: string) => {
+    try {
+      let decryptedKey = encryptedKey;
+
+      // Always require PIN for encrypted keys
+      if (isEncrypted) {
+        // Store the keypair we're trying to load
+        setPendingKeypair({ label: '', key: encryptedKey, publicKey: publicKey || '' });
+        setPinModalMode('unlock');
+        setShowPinModal(true);
+        return;
+      }
+
+      // Parse and connect (don't show in UI)
+      let input = decryptedKey.trim();
+      if (input.startsWith('[') && input.endsWith(']')) {
+        input = input.slice(1, -1);
+      }
+
+      let decoded: Uint8Array;
+      if (input.includes(',')) {
+        decoded = new Uint8Array(
+          input.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+        );
+      } else {
+        const { bs58 } = require('@solana/web3.js');
+        decoded = bs58.decode(input);
+      }
 
       if (decoded.length === 64) {
         connectKeypair(decoded);
         setShowWalletModal(false);
-        setPrivateKeyInput('');
-      } else {
-        // Try base58 decode
-        const { bs58 } = require('@solana/web3.js');
-        const bytes = bs58.decode(privateKeyInput.trim());
-        connectKeypair(bytes);
-        setShowWalletModal(false);
-        setPrivateKeyInput('');
       }
     } catch (err) {
-      alert('Invalid private key format. Enter comma-separated bytes (with or without brackets) or base58 string.');
+      setKeypairError('Error loading keypair. Invalid PIN or corrupted data.');
+    }
+  };
+
+  const handleDeleteSavedKeypair = async (publicKey: string) => {
+    const updated = savedKeypairs.filter(k => k.publicKey !== publicKey);
+    setSavedKeypairs(updated);
+
+    // Update localStorage
+    try {
+      const existing = await loadDecryptedKeypairs();
+      const updatedEncrypted = existing.filter(k => k.publicKey !== publicKey);
+      localStorage.setItem('saved-keypairs-encrypted', JSON.stringify({
+        encrypted: true,
+        data: updatedEncrypted
+      }));
+    } catch (err) {
+      console.error('Error deleting keypair:', err);
+    }
+
+    setDeleteConfirmPublicKey(null);
+  };
+
+  const handleGenerateKeypair = () => {
+    const { Keypair } = require('@solana/web3.js');
+    const newKeypair = Keypair.generate();
+    const secretKeyArray = Array.from(newKeypair.secretKey);
+
+    setGeneratedKeypair({
+      secretKey: JSON.stringify(secretKeyArray),
+      publicKey: newKeypair.publicKey.toString()
+    });
+    setShowGeneratedKey(true);
+  };
+
+  const handleChangePin = () => {
+    if (savedKeypairs.length === 0) {
+      setKeypairError('No saved keypairs to protect with a PIN');
+      return;
+    }
+    setPinModalMode('change-verify');
+    setShowPinModal(true);
+  };
+
+  const reencryptAllKeypairs = async (oldPin: string, newPin: string) => {
+    try {
+      const encrypted = localStorage.getItem('saved-keypairs-encrypted');
+      if (!encrypted) return;
+
+      const parsed = JSON.parse(encrypted);
+      if (!parsed.encrypted || !parsed.data) return;
+
+      // Decrypt all with old PIN and re-encrypt with new PIN
+      const reencrypted = await Promise.all(
+        parsed.data.map(async (kp: any) => {
+          if (kp.encrypted) {
+            const decrypted = await decryptData(kp.key, oldPin);
+            const reenc = await encryptData(decrypted, newPin);
+            return { ...kp, key: reenc };
+          }
+          return kp;
+        })
+      );
+
+      localStorage.setItem('saved-keypairs-encrypted', JSON.stringify({
+        encrypted: true,
+        data: reencrypted
+      }));
+
+      setSavedKeypairs(reencrypted);
+    } catch (err) {
+      throw new Error('Failed to re-encrypt keypairs');
+    }
+  };
+
+  const handleSaveGeneratedKeypair = async () => {
+    if (!generatedKeypair || !keypairLabel.trim()) return;
+
+    const newSaved = {
+      label: keypairLabel.trim(),
+      key: generatedKeypair.secretKey,
+      publicKey: generatedKeypair.publicKey
+    };
+
+    // Save with encryption
+    await saveEncryptedKeypair(newSaved);
+
+    // Auto-connect
+    await handleLoadSavedKeypair(generatedKeypair.secretKey, false);
+
+    setShowGeneratedKey(false);
+    setGeneratedKeypair(null);
+    setKeypairLabel('');
+  };
+
+  const handlePinSubmit = async (pin: string) => {
+    try {
+      setPinError(''); // Clear any previous errors
+
+      // Check if we need to generate math problem for 9th attempt
+      if (failedAttempts === 9 && !mathProblem && pinModalMode === 'unlock') {
+        const problem = generateMathProblem();
+        setMathProblem(problem);
+        return;
+      }
+
+      if (pinModalMode === 'change-verify') {
+        // Verify old PIN by trying to decrypt a keypair
+        const encrypted = localStorage.getItem('saved-keypairs-encrypted');
+        if (encrypted) {
+          const parsed = JSON.parse(encrypted);
+          if (parsed.encrypted && parsed.data && parsed.data.length > 0) {
+            try {
+              await decryptData(parsed.data[0].key, pin);
+              setOldPin(pin);
+              setPinModalMode('change-new');
+              // Modal stays open for new PIN
+              return; // Important: return here to keep modal open
+            } catch (err) {
+              // Increment failed attempts for PIN changes too
+              const newAttempts = failedAttempts + 1;
+              setFailedAttempts(newAttempts);
+              localStorage.setItem('pin-failed-attempts', newAttempts.toString());
+
+              if (newAttempts >= 10) {
+                wipeAllKeypairs();
+                setShowPinModal(false);
+                return;
+              }
+
+              setPinError('Incorrect PIN. Please try again.');
+              return; // Return on error too
+            }
+          }
+        }
+        return; // Return if no saved keypairs found
+      } else if (pinModalMode === 'change-new') {
+        // Set new PIN and re-encrypt all keys
+        if (oldPin) {
+          try {
+            await reencryptAllKeypairs(oldPin, pin);
+            sessionStorage.setItem('wallet-pin', pin);
+            // Reset failed attempts on successful PIN change
+            setFailedAttempts(0);
+            localStorage.setItem('pin-failed-attempts', '0');
+            setShowPinModal(false);
+            setOldPin(null);
+            setKeypairError('');
+            // Success message
+            setKeypairError('PIN changed successfully!');
+            setTimeout(() => setKeypairError(''), 3000);
+          } catch (err) {
+            setPinError('Failed to change PIN. Please try again.');
+          }
+        }
+      } else if (pinModalMode === 'set') {
+        // Store PIN in session
+        sessionStorage.setItem('wallet-pin', pin);
+        setShowPinModal(false);
+
+        // Reset attempts when setting new PIN
+        setFailedAttempts(0);
+        localStorage.setItem('pin-failed-attempts', '0');
+
+        // Save pending keypair if exists
+        if (pendingKeypair) {
+          await saveEncryptedKeypair(pendingKeypair);
+          setPendingKeypair(null);
+
+          // Continue with connection
+          if (privateKeyInput) {
+            const input = privateKeyInput.trim();
+            let decoded: Uint8Array;
+            if (input.startsWith('[') && input.endsWith(']')) {
+              const cleaned = input.slice(1, -1);
+              decoded = new Uint8Array(
+                cleaned.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+              );
+            } else if (input.includes(',')) {
+              decoded = new Uint8Array(
+                input.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+              );
+            } else {
+              const { bs58 } = require('@solana/web3.js');
+              decoded = bs58.decode(input);
+            }
+
+            connectKeypair(decoded);
+            setShowWalletModal(false);
+            setPrivateKeyInput('');
+            setSaveKeypair(false);
+            setKeypairLabel('');
+          }
+        }
+      } else {
+        // Unlock mode - decrypt and connect to pending keypair
+        if (pendingKeypair) {
+          try {
+            const decryptedKey = await decryptData(pendingKeypair.key, pin);
+
+            // Success! Reset failed attempts
+            setFailedAttempts(0);
+            localStorage.setItem('pin-failed-attempts', '0');
+            setMathProblem(null);
+            setShowPinModal(false);
+            setPendingKeypair(null);
+            sessionStorage.setItem('wallet-pin', pin);
+
+            // Parse and connect
+            let input = decryptedKey.trim();
+            if (input.startsWith('[') && input.endsWith(']')) {
+              input = input.slice(1, -1);
+            }
+
+            let decoded: Uint8Array;
+            if (input.includes(',')) {
+              decoded = new Uint8Array(
+                input.split(',').map(s => parseInt(s.trim())).filter(n => !isNaN(n))
+              );
+            } else {
+              const { bs58 } = require('@solana/web3.js');
+              decoded = bs58.decode(input);
+            }
+
+            if (decoded.length === 64) {
+              connectKeypair(decoded);
+              setShowWalletModal(false);
+            }
+          } catch (err) {
+            // Failed attempt - increment counter
+            const newAttempts = failedAttempts + 1;
+            setFailedAttempts(newAttempts);
+            localStorage.setItem('pin-failed-attempts', newAttempts.toString());
+
+            // Check if we've hit the limit
+            if (newAttempts >= 10) {
+              wipeAllKeypairs();
+              setShowPinModal(false);
+              return;
+            }
+
+            // Generate math problem at 9 attempts
+            if (newAttempts === 9) {
+              const problem = generateMathProblem();
+              setMathProblem(problem);
+            }
+
+            setPinError('Invalid PIN or corrupted data');
+          }
+        }
+      }
+    } catch (err) {
+      setPinError('Invalid PIN. Please try again.');
     }
   };
 
@@ -297,7 +782,7 @@ export function TradingPanel({
         connectFromJson(content);
         setShowWalletModal(false);
       } catch (err) {
-        alert('Invalid keyfile format');
+        setKeypairError('Invalid keyfile format. Please check the file and try again.');
       }
     };
     reader.readAsText(file);
@@ -1119,6 +1604,18 @@ export function TradingPanel({
                 </div>
               )}
 
+              {keypairError && (
+                <div className="mb-4 p-3 bg-red-900/20 border border-red-700/50 rounded-lg text-xs text-red-400 flex items-center justify-between">
+                  <span>{keypairError}</span>
+                  <button
+                    onClick={() => setKeypairError('')}
+                    className="text-red-300 hover:text-red-100"
+                  >
+                    <X className="w-4 h-4" />
+                  </button>
+                </div>
+              )}
+
               {walletTab === 'browser' && (
                 <div className="space-y-3">
                   <button
@@ -1165,30 +1662,209 @@ export function TradingPanel({
               )}
 
               {walletTab === 'keypair' && (
-                <div className="space-y-3">
-                  <div>
-                    <label className="block text-xs text-gray-400 mb-1.5">
-                      Private Key (comma-separated bytes or base58)
-                    </label>
-                    <textarea
-                      value={privateKeyInput}
-                      onChange={(e) => setPrivateKeyInput(e.target.value)}
-                      placeholder="[123, 45, 67, ...] or 123, 45, 67, ..."
-                      rows={4}
-                      className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 text-xs focus:border-primary-500 focus:outline-none font-mono"
-                    />
+                <div className="space-y-4">
+                  {/* Experimental Warning */}
+                  <div className="p-3 bg-yellow-900/20 border border-yellow-700/50 rounded-lg">
+                    <p className="text-xs text-yellow-300 font-medium mb-1">⚠️ Experimental Feature</p>
+                    <p className="text-xs text-yellow-200/70">
+                      Keypair save functionality is experimental and provided for ease of use during testing.
+                      Keys are encrypted with your PIN but stored locally. Use at your own risk.
+                      Never use this with mainnet funds or production wallets.
+                    </p>
                   </div>
-                  <button
-                    onClick={handlePrivateKeyConnect}
-                    disabled={!privateKeyInput || isConnecting}
-                    className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary-600 hover:bg-primary-500 disabled:bg-dark-700 rounded-lg text-sm text-white font-medium transition-colors"
-                  >
-                    <Key className="w-4 h-4" />
-                    Connect
-                  </button>
-                  <p className="text-xs text-yellow-500/70 text-center">
-                    Warning: Entering private keys is insecure. Use only for testing.
-                  </p>
+
+                  {/* Generate New Keypair Section */}
+                  {!showGeneratedKey ? (
+                    <div className="p-3 bg-primary-900/20 border border-primary-700/50 rounded-lg">
+                      <button
+                        onClick={handleGenerateKeypair}
+                        className="w-full flex items-center justify-center gap-2 py-2 bg-primary-600 hover:bg-primary-500 rounded-lg text-sm text-white font-medium transition-colors"
+                      >
+                        <Key className="w-4 h-4" />
+                        Generate New Keypair
+                      </button>
+                      <p className="text-xs text-gray-400 text-center mt-2">
+                        Create a new wallet for testing
+                      </p>
+                    </div>
+                  ) : (
+                    <div className="p-4 bg-green-900/20 border border-green-700/50 rounded-lg space-y-3">
+                      <div className="flex items-center justify-between">
+                        <h4 className="text-sm font-medium text-green-300">New Keypair Generated!</h4>
+                        <button
+                          onClick={() => {
+                            setShowGeneratedKey(false);
+                            setGeneratedKeypair(null);
+                            setKeypairLabel('');
+                          }}
+                          className="p-1 rounded hover:bg-dark-700 text-gray-400"
+                        >
+                          <X className="w-4 h-4" />
+                        </button>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Public Key</label>
+                        <div className="p-2 bg-dark-900 rounded border border-dark-700 text-xs font-mono text-white break-all">
+                          {generatedKeypair?.publicKey}
+                        </div>
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Private Key (Keep Secret!)</label>
+                        <textarea
+                          value={generatedKeypair?.secretKey}
+                          readOnly
+                          rows={3}
+                          className="w-full p-2 bg-dark-900 rounded border border-dark-700 text-xs font-mono text-yellow-300 break-all"
+                        />
+                      </div>
+
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1">Label for this wallet</label>
+                        <input
+                          type="text"
+                          value={keypairLabel}
+                          onChange={(e) => setKeypairLabel(e.target.value)}
+                          placeholder="e.g., 'Test Wallet 1'"
+                          className="w-full px-3 py-2 bg-dark-900 border border-dark-700 rounded-lg text-white text-xs focus:border-primary-500 focus:outline-none"
+                        />
+                      </div>
+
+                      <button
+                        onClick={handleSaveGeneratedKeypair}
+                        disabled={!keypairLabel.trim()}
+                        className="w-full py-2 bg-green-600 hover:bg-green-500 disabled:bg-dark-700 disabled:cursor-not-allowed rounded-lg text-sm text-white font-medium transition-colors"
+                      >
+                        Save & Connect
+                      </button>
+
+                      <p className="text-xs text-yellow-400 text-center">
+                        ⚠️ Copy your private key! It will only be shown once.
+                      </p>
+                    </div>
+                  )}
+
+                  {/* Saved Keypairs */}
+                  {!showGeneratedKey && savedKeypairs.length > 0 && (
+                    <div>
+                      <div className="flex items-center justify-between mb-2">
+                        <label className="block text-xs text-gray-400 font-medium">
+                          Saved Keypairs ({savedKeypairs.length})
+                        </label>
+                        <button
+                          onClick={handleChangePin}
+                          className="text-xs text-primary-400 hover:text-primary-300 transition-colors"
+                        >
+                          Change PIN
+                        </button>
+                      </div>
+                      <div className="space-y-1.5 max-h-40 overflow-y-auto">
+                        {savedKeypairs.map((saved) => (
+                          <div
+                            key={saved.publicKey}
+                            className={`p-2.5 rounded-lg transition-colors ${
+                              deleteConfirmPublicKey === saved.publicKey
+                                ? 'bg-red-900/20 border border-red-700/50'
+                                : 'bg-dark-900/50 hover:bg-dark-800/50'
+                            }`}
+                          >
+                            {deleteConfirmPublicKey === saved.publicKey ? (
+                              <div className="space-y-2">
+                                <p className="text-xs text-red-300">Delete "{saved.label}"?</p>
+                                <div className="flex gap-2">
+                                  <button
+                                    onClick={() => handleDeleteSavedKeypair(saved.publicKey)}
+                                    className="flex-1 py-1.5 bg-red-600 hover:bg-red-500 text-white text-xs rounded transition-colors"
+                                  >
+                                    Delete
+                                  </button>
+                                  <button
+                                    onClick={() => setDeleteConfirmPublicKey(null)}
+                                    className="flex-1 py-1.5 bg-dark-700 hover:bg-dark-600 text-gray-300 text-xs rounded transition-colors"
+                                  >
+                                    Cancel
+                                  </button>
+                                </div>
+                              </div>
+                            ) : (
+                              <div className="flex items-center justify-between group">
+                                <button
+                                  onClick={() => handleLoadSavedKeypair(saved.key, saved.encrypted || false, saved.publicKey)}
+                                  className="flex-1 text-left"
+                                >
+                                  <div className="text-xs text-white font-medium">{saved.label}</div>
+                                  <div className="text-[10px] text-gray-500 font-mono">{saved.publicKey.slice(0, 8)}...{saved.publicKey.slice(-6)}</div>
+                                </button>
+                                <button
+                                  onClick={() => setDeleteConfirmPublicKey(saved.publicKey)}
+                                  className="p-1 rounded hover:bg-red-900/30 text-gray-500 hover:text-red-400 transition-colors opacity-0 group-hover:opacity-100"
+                                  title="Delete"
+                                >
+                                  <X className="w-3.5 h-3.5" />
+                                </button>
+                              </div>
+                            )}
+                          </div>
+                        ))}
+                      </div>
+                      <div className="mt-2 pt-2 border-t border-dark-700"></div>
+                    </div>
+                  )}
+
+                  {/* Private Key Input - Only show when not generating */}
+                  {!showGeneratedKey && (
+                    <>
+                      <div>
+                        <label className="block text-xs text-gray-400 mb-1.5">
+                          Import Private Key (comma-separated bytes or base58)
+                        </label>
+                        <textarea
+                          value={privateKeyInput}
+                          onChange={(e) => setPrivateKeyInput(e.target.value)}
+                          placeholder="[123, 45, 67, ...] or 123, 45, 67, ..."
+                          rows={3}
+                          className="w-full bg-dark-900 border border-dark-600 rounded-lg px-3 py-2 text-white placeholder-gray-600 text-xs focus:border-primary-500 focus:outline-none font-mono"
+                        />
+                      </div>
+
+                      {/* Save Keypair Option */}
+                      {privateKeyInput && (
+                        <div className="space-y-2 p-3 bg-dark-900/50 rounded-lg border border-dark-700">
+                          <label className="flex items-center gap-2 cursor-pointer">
+                            <input
+                              type="checkbox"
+                              checked={saveKeypair}
+                              onChange={(e) => setSaveKeypair(e.target.checked)}
+                              className="w-4 h-4 text-primary-600 rounded focus:ring-primary-500"
+                            />
+                            <span className="text-xs text-gray-300">Save this keypair for quick access</span>
+                          </label>
+                          {saveKeypair && (
+                            <input
+                              type="text"
+                              value={keypairLabel}
+                              onChange={(e) => setKeypairLabel(e.target.value)}
+                              placeholder="Label (e.g., 'Trading Wallet', 'LP Wallet')"
+                              className="w-full bg-dark-800 border border-dark-600 rounded px-2 py-1.5 text-xs text-white placeholder-gray-600 focus:border-primary-500 focus:outline-none"
+                            />
+                          )}
+                        </div>
+                      )}
+
+                      <button
+                        onClick={handlePrivateKeyConnect}
+                        disabled={!privateKeyInput || isConnecting || (saveKeypair && !keypairLabel.trim())}
+                        className="w-full flex items-center justify-center gap-2 py-2.5 bg-primary-600 hover:bg-primary-500 disabled:bg-dark-700 disabled:cursor-not-allowed rounded-lg text-sm text-white font-medium transition-colors"
+                      >
+                        <Key className="w-4 h-4" />
+                        Connect {saveKeypair && '& Save'}
+                      </button>
+                      <p className="text-xs text-yellow-500/70 text-center">
+                        ⚠️ Keys are saved in your browser. Keep your device secure!
+                      </p>
+                    </>
+                  )}
                 </div>
               )}
 
@@ -1218,6 +1894,37 @@ export function TradingPanel({
           </div>
         </div>
       )}
+
+      {/* PIN Modal */}
+      <PinModal
+        key={pinModalMode}
+        isOpen={showPinModal}
+        onClose={() => {
+          setShowPinModal(false);
+          setPinError('');
+          setOldPin(null);
+          setPinModalMode('set');
+          setMathProblem(null);
+        }}
+        onSubmit={handlePinSubmit}
+        title={
+          pinModalMode === 'set' ? 'Set Wallet PIN' :
+          pinModalMode === 'change-verify' ? 'Verify Current PIN' :
+          pinModalMode === 'change-new' ? 'Set New PIN' :
+          'Enter Wallet PIN'
+        }
+        message={
+          pinModalMode === 'set' ? 'Create a 4-digit PIN to encrypt your wallet keys' :
+          pinModalMode === 'change-verify' ? 'Enter your current PIN to verify' :
+          pinModalMode === 'change-new' ? 'Enter your new 4-digit PIN' :
+          'Enter your PIN to decrypt wallet keys'
+        }
+        error={pinError}
+        attemptsRemaining={failedAttempts >= 8 ? 10 - failedAttempts : undefined}
+        requireMathChallenge={failedAttempts === 9 && mathProblem !== null}
+        mathProblem={mathProblem?.question}
+        onMathSubmit={validateMathAnswer}
+      />
     </div>
   );
 }

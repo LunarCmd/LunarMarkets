@@ -108,6 +108,59 @@ export default function Dashboard() {
   const baseSymbol = selectedMarket?.underlyingSymbol || 'LIQUID';
   const baseDecimals = selectedMarket?.underlyingDecimals || 6;
 
+  // Show configuration error if no valid markets
+  if (markets.length === 0) {
+    return (
+      <div className="min-h-screen bg-dark-900">
+        <Header
+          selectedMarket={null}
+          onMarketChange={() => {}}
+          onSettingsClick={() => setIsSettingsOpen(true)}
+        />
+
+        <main className="max-w-[1600px] mx-auto px-4 sm:px-6 lg:px-8 py-8">
+          <div className="mb-6 p-6 bg-red-900/30 border-2 border-red-700 rounded-lg">
+            <div className="flex items-start gap-3">
+              <Activity className="w-6 h-6 text-red-400 flex-shrink-0 mt-0.5" />
+              <div className="flex-1">
+                <p className="text-red-400 font-bold text-lg mb-2">⚠️ Configuration Error</p>
+                <p className="text-red-300 mb-4">
+                  No valid markets configured. Please check your <code className="bg-red-950/50 px-2 py-1 rounded font-mono text-sm">.env.local</code> file.
+                </p>
+
+                <div className="bg-red-950/50 p-4 rounded-lg space-y-3">
+                  <p className="text-red-200 font-semibold">Required environment variables:</p>
+                  <ul className="space-y-2 text-sm text-red-300">
+                    <li>• <code className="font-mono">NEXT_PUBLIC_SLAB_ADDRESS</code> - Valid Solana public key</li>
+                    <li>• <code className="font-mono">NEXT_PUBLIC_TOKEN_ADDRESS</code> - Valid Solana public key</li>
+                    <li>• <code className="font-mono">NEXT_PUBLIC_PROGRAM_ID</code> - Valid Solana public key</li>
+                    <li>• <code className="font-mono">NEXT_PUBLIC_MATCHER_PROGRAM_ID</code> - Valid Solana public key</li>
+                  </ul>
+                  <p className="text-red-300 text-sm mt-4">
+                    After updating your <code className="font-mono">.env.local</code> file, restart the development server.
+                  </p>
+                </div>
+
+                <button
+                  onClick={() => setIsSettingsOpen(true)}
+                  className="mt-4 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-medium transition-colors"
+                >
+                  Open Settings
+                </button>
+              </div>
+            </div>
+          </div>
+        </main>
+
+        <SettingsModal
+          isOpen={isSettingsOpen}
+          onClose={() => setIsSettingsOpen(false)}
+          onMarketsUpdate={setMarkets}
+        />
+      </div>
+    );
+  }
+
   return (
     <div className="min-h-screen bg-dark-900">
       <Header

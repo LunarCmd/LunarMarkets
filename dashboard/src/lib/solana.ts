@@ -185,7 +185,14 @@ export async function fetchSlabData(
   connection: SolanaConnection,
   market: MarketConfig
 ): Promise<SlabData> {
-  const slabPubkey = new PublicKey(market.slabAddress);
+  let slabPubkey: PublicKey;
+
+  try {
+    slabPubkey = new PublicKey(market.slabAddress);
+  } catch (err) {
+    throw new Error(`Invalid slab address for market ${market.name}: ${market.slabAddress}`);
+  }
+
   const accountInfo = await connection.getAccountInfo(slabPubkey);
 
   if (!accountInfo) {

@@ -43,6 +43,11 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
   const [customRpcUrl, setCustomRpcUrl] = useLocalStorage<string>('custom-rpc-url', '');
   const { refreshInterval } = getConfig();
 
+  // Get default markets from .env (these cannot be deleted)
+  const defaultMarketIds = getAllMarkets().map(m => m.id);
+
+  const isDefaultMarket = (marketId: string) => defaultMarketIds.includes(marketId);
+
   useEffect(() => {
     if (isOpen) {
       setMarkets(getAllMarkets());
@@ -51,6 +56,13 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
 
   const handleSaveMarket = () => {
     if (!editingMarket.id || !editingMarket.name) return;
+
+    // Prevent editing default markets from .env
+    if (isDefaultMarket(editingMarket.id)) {
+      setIsEditing(false);
+      setEditingMarket(emptyForm);
+      return;
+    }
 
     const existingIndex = markets.findIndex(m => m.id === editingMarket.id);
     let newMarkets: MarketConfig[];
@@ -70,6 +82,10 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
   };
 
   const handleDeleteMarket = (id: string) => {
+    // Prevent deletion of default markets from .env
+    if (isDefaultMarket(id)) {
+      return;
+    }
     const newMarkets = markets.filter(m => m.id !== id);
     setMarkets(newMarkets);
     onMarketsUpdate(newMarkets);
@@ -230,6 +246,11 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                           <div className="flex items-center gap-2">
                             <span className="font-medium text-white">{market.name}</span>
                             <span className="text-xs text-gray-500">({market.id})</span>
+                            {isDefaultMarket(market.id) && (
+                              <span className="px-2 py-0.5 text-xs bg-primary-900/50 text-primary-300 border border-primary-700/50 rounded">
+                                Default
+                              </span>
+                            )}
                           </div>
                           <p className="text-sm text-gray-400">{market.description}</p>
                           <div className="mt-1 flex gap-2 text-xs text-gray-500">
@@ -242,15 +263,19 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                           <button
                             onClick={() => handleEditMarket(market)}
                             className="p-2 rounded-lg hover:bg-dark-700 text-gray-400 hover:text-white transition-colors"
+                            title={isDefaultMarket(market.id) ? "View market details" : "Edit market"}
                           >
                             <Edit2 className="w-4 h-4" />
                           </button>
-                          <button
-                            onClick={() => handleDeleteMarket(market.id)}
-                            className="p-2 rounded-lg hover:bg-dark-700 text-gray-400 hover:text-red-400 transition-colors"
-                          >
-                            <Trash2 className="w-4 h-4" />
-                          </button>
+                          {!isDefaultMarket(market.id) && (
+                            <button
+                              onClick={() => handleDeleteMarket(market.id)}
+                              className="p-2 rounded-lg hover:bg-dark-700 text-gray-400 hover:text-red-400 transition-colors"
+                              title="Delete market"
+                            >
+                              <Trash2 className="w-4 h-4" />
+                            </button>
+                          )}
                         </div>
                       </div>
                     ))}
@@ -258,9 +283,16 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                 </>
               ) : (
                 <div className="bg-dark-900/50 rounded-lg p-4 space-y-4">
-                  <h3 className="font-medium text-white">
-                    {markets.find(m => m.id === editingMarket.id) ? 'Edit Market' : 'Add Market'}
-                  </h3>
+                  <div className="flex items-center justify-between">
+                    <h3 className="font-medium text-white">
+                      {markets.find(m => m.id === editingMarket.id) ? 'Edit Market' : 'Add Market'}
+                    </h3>
+                    {isDefaultMarket(editingMarket.id) && (
+                      <span className="px-2 py-1 text-xs bg-primary-900/50 text-primary-300 border border-primary-700/50 rounded">
+                        Default Market (View Only)
+                      </span>
+                    )}
+                  </div>
 
                   <div className="grid grid-cols-2 gap-4">
                     <div>
@@ -271,6 +303,8 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                         onChange={(e) => setEditingMarket({ ...editingMarket, id: e.target.value })}
                         className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white text-sm"
                         placeholder="unique-id"
+                        readOnly={isDefaultMarket(editingMarket.id)}
+                        disabled={isDefaultMarket(editingMarket.id)}
                       />
                     </div>
                     <div>
@@ -281,6 +315,8 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                         onChange={(e) => setEditingMarket({ ...editingMarket, name: e.target.value })}
                         className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white text-sm"
                         placeholder="Market Name"
+                        readOnly={isDefaultMarket(editingMarket.id)}
+                        disabled={isDefaultMarket(editingMarket.id)}
                       />
                     </div>
                   </div>
@@ -293,6 +329,8 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                       onChange={(e) => setEditingMarket({ ...editingMarket, description: e.target.value })}
                       className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white text-sm"
                       placeholder="Market description"
+                      readOnly={isDefaultMarket(editingMarket.id)}
+                      disabled={isDefaultMarket(editingMarket.id)}
                     />
                   </div>
 
@@ -304,6 +342,8 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                       onChange={(e) => setEditingMarket({ ...editingMarket, slabAddress: e.target.value })}
                       className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white text-sm font-mono"
                       placeholder="11111111111111111111111111111111"
+                      readOnly={isDefaultMarket(editingMarket.id)}
+                      disabled={isDefaultMarket(editingMarket.id)}
                     />
                   </div>
 
@@ -315,6 +355,8 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                       onChange={(e) => setEditingMarket({ ...editingMarket, tokenAddress: e.target.value })}
                       className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white text-sm font-mono"
                       placeholder="So11111111111111111111111111111111111111112"
+                      readOnly={isDefaultMarket(editingMarket.id)}
+                      disabled={isDefaultMarket(editingMarket.id)}
                     />
                   </div>
 
@@ -326,6 +368,8 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                       onChange={(e) => setEditingMarket({ ...editingMarket, programId: e.target.value })}
                       className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white text-sm font-mono"
                       placeholder="Program ID"
+                      readOnly={isDefaultMarket(editingMarket.id)}
+                      disabled={isDefaultMarket(editingMarket.id)}
                     />
                   </div>
 
@@ -337,6 +381,8 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                       onChange={(e) => setEditingMarket({ ...editingMarket, matcherProgramId: e.target.value })}
                       className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white text-sm font-mono"
                       placeholder="Matcher Program ID"
+                      readOnly={isDefaultMarket(editingMarket.id)}
+                      disabled={isDefaultMarket(editingMarket.id)}
                     />
                   </div>
 
@@ -348,6 +394,8 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                       onChange={(e) => setEditingMarket({ ...editingMarket, oracleAddress: e.target.value })}
                       className="w-full px-3 py-2 bg-dark-800 border border-dark-700 rounded-lg text-white text-sm font-mono"
                       placeholder="Oracle Address"
+                      readOnly={isDefaultMarket(editingMarket.id)}
+                      disabled={isDefaultMarket(editingMarket.id)}
                     />
                   </div>
 
@@ -359,15 +407,17 @@ export function SettingsModal({ isOpen, onClose, onMarketsUpdate }: SettingsModa
                       }}
                       className="px-4 py-2 rounded-lg bg-dark-700 hover:bg-dark-600 text-gray-300 transition-colors"
                     >
-                      Cancel
+                      {isDefaultMarket(editingMarket.id) ? 'Close' : 'Cancel'}
                     </button>
-                    <button
-                      onClick={handleSaveMarket}
-                      className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-500 text-white transition-colors"
-                    >
-                      <Save className="w-4 h-4" />
-                      Save Market
-                    </button>
+                    {!isDefaultMarket(editingMarket.id) && (
+                      <button
+                        onClick={handleSaveMarket}
+                        className="flex items-center gap-2 px-4 py-2 rounded-lg bg-primary-600 hover:bg-primary-500 text-white transition-colors"
+                      >
+                        <Save className="w-4 h-4" />
+                        Save Market
+                      </button>
+                    )}
                   </div>
                 </div>
               )}

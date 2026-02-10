@@ -64,32 +64,38 @@ export function useMarketData(market: MarketConfig | null): UseMarketDataReturn 
       setStats(marketStats);
       setLastUpdated(new Date());
       setLoadingState('success');
+      setError(null); // Clear any previous errors
+
+      // Resume auto-refresh on successful fetch
+      if (!intervalRef.current) {
+        intervalRef.current = setInterval(fetchData, refreshInterval);
+      }
     } catch (err) {
       console.error('Error fetching market data:', err);
       setLoadingState('error');
       setError(err instanceof Error ? err : new Error('Unknown error'));
-    }
-  }, [market]);
 
-  // Initial fetch and interval setup
+      // Stop auto-refresh on error - wait for user to fix RPC
+      if (intervalRef.current) {
+        clearInterval(intervalRef.current);
+        intervalRef.current = null;
+      }
+    }
+  }, [market, refreshInterval]);
+
+  // Initial fetch only - no auto-refresh until successful
   useEffect(() => {
     if (market) {
       fetchData();
-
-      // Set up auto-refresh
-      if (intervalRef.current) {
-        clearInterval(intervalRef.current);
-      }
-
-      intervalRef.current = setInterval(fetchData, refreshInterval);
     }
 
     return () => {
       if (intervalRef.current) {
         clearInterval(intervalRef.current);
+        intervalRef.current = null;
       }
     };
-  }, [market, fetchData, refreshInterval]);
+  }, [market, fetchData]);
 
   return {
     data,

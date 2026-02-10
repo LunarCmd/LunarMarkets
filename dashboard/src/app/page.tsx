@@ -141,21 +141,27 @@ export default function Dashboard() {
               <div className="flex-1">
                 <p className="text-red-400 font-medium">Error loading data</p>
                 <p className="text-red-300/70 text-sm">{error.message}</p>
-                
-                {error.message?.includes('403') && (
-                  <div className="mt-3 p-3 bg-red-950/50 rounded-lg text-sm">
-                    <p className="text-red-300 font-medium mb-1">RPC Access Forbidden</p>
-                    <p className="text-red-300/70">
-                      The public Solana RPC is blocking access to this account. 
-                      To fix this, update your <code className="bg-red-900/50 px-1 rounded">.env.local</code> file with a private RPC endpoint:
-                    </p>
-                    <ul className="mt-2 space-y-1 text-red-300/70 list-disc ml-5">
-                      <li>Helius: <code className="bg-red-900/30 px-1 rounded">https://mainnet.helius-rpc.com/?api-key=YOUR_KEY</code></li>
-                      <li>QuickNode: <code className="bg-red-900/30 px-1 rounded">https://YOUR_SUBDOMAIN.quicknode.pro/YOUR_TOKEN</code></li>
-                      <li>Alchemy: <code className="bg-red-900/30 px-1 rounded">https://solana-mainnet.g.alchemy.com/v2/YOUR_KEY</code></li>
-                    </ul>
-                  </div>
-                )}
+
+                <div className="mt-3 p-3 bg-red-950/50 rounded-lg text-sm">
+                  <p className="text-red-300 font-medium mb-2">⚠️ You must use your own RPC endpoint</p>
+                  <p className="text-red-300/70 mb-2">
+                    The default public RPC is rate-limited and unreliable. Auto-refresh has been paused to avoid repeated errors.
+                  </p>
+                  <p className="text-red-300/70 mb-3">
+                    Please add your own RPC endpoint from a provider like:
+                  </p>
+                  <ul className="mt-2 mb-3 space-y-1 text-red-300/70 list-disc ml-5">
+                    <li><strong>Helius:</strong> <a href="https://helius.dev" target="_blank" rel="noopener noreferrer" className="underline hover:text-red-200">helius.dev</a> (free tier available)</li>
+                    <li><strong>QuickNode:</strong> <a href="https://quicknode.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-red-200">quicknode.com</a></li>
+                    <li><strong>Alchemy:</strong> <a href="https://alchemy.com" target="_blank" rel="noopener noreferrer" className="underline hover:text-red-200">alchemy.com</a></li>
+                  </ul>
+                  <button
+                    onClick={() => setIsSettingsOpen(true)}
+                    className="mt-2 px-4 py-2 bg-red-600 hover:bg-red-500 text-white rounded-lg text-sm font-medium transition-colors"
+                  >
+                    Open Settings to Add RPC
+                  </button>
+                </div>
               </div>
             </div>
           </div>
